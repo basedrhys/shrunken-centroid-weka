@@ -1,5 +1,6 @@
 package weka.classifiers.lazy;
 
+import weka.core.Attribute;
 import weka.core.DenseInstance;
 import weka.core.Instance;
 
@@ -34,6 +35,15 @@ class Centroid {
 
     public double getDifferenceFromInstanceAttribute(Instance instance, int attributeI) {
         return instance.value(attributeI) - m_inst.value(attributeI);
+    }
+
+    public double getDistanceFromInstance(Instance instance) {
+        double dist = 0;
+        for (int i = 0; i < m_inst.numAttributes(); i++) {
+            double d = instance.value(i) - m_inst.value(i);
+            dist += d * d;
+        }
+        return Math.sqrt(dist);
     }
 
     public void averageValues() {
