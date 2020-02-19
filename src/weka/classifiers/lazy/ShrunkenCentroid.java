@@ -30,7 +30,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
     private Centroid m_globalCentroid;
 
-    private Map<String, Centroid> m_classCentroids;
+    private Centroid[] m_classCentroids;
 
     private int m_centroidNumAttributes;
 
@@ -77,14 +77,8 @@ public class ShrunkenCentroid extends AbstractClassifier {
         }
     }
 
-    private void printClassCentroids() {
-        for (String key : m_classCentroids.keySet()) {
-            System.out.println("CLASS = " + key + ", " + m_classCentroids.get(key));
-        }
-    }
-
     private double[] calculateStandardDeviations(@NotNull Instances trainingData) {
-        int numClasses = m_classCentroids.keySet().size();
+        int numClasses = m_classCentroids.length;
         double[] withinClassStandardDeviations = new double[m_centroidNumAttributes];
         // 1 / n - K
         double stdValue = 1 / (float) (trainingData.numInstances() - numClasses);
@@ -94,8 +88,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
             // Dont calculate for class attribute
             if (trainingData.attribute(i) != trainingData.classAttribute()) {
                 // Outer sum : for all classes
-                for (String classVal : m_classCentroids.keySet()) {
-                    Centroid thisClassCentroid = m_classCentroids.get(classVal);
+                for (Centroid thisClassCentroid : m_classCentroids) {
                     // Inner sum : for all instances in this class
                     for (Instance instance : thisClassCentroid.getInstances()) {
                         // Xij - X-ik - difference between this instance and the class centroid for this attribute
@@ -117,54 +110,66 @@ public class ShrunkenCentroid extends AbstractClassifier {
         return withinClassStandardDeviations;
     }
 
-    private void createCentroids(Instances trainingData) {
-        m_centroidNumAttributes = trainingData.numAttributes() - 1; // ignore class value
+    private void initClassCentroids(Instances trainingData) {
+        m_classCentroids = new Centroid[trainingData.classAttribute().numValues()];
+        for (int i = 0; i < m_classCentroids.length; i++) {
+            m_classCentroids[i] = new Centroid(m_centroidNumAttributes);
+        }
+    }
 
+    private void createCentroids(@NotNull Instances trainingData) {
+        m_centroidNumAttributes = trainingData.numAttributes() - 1; // ignore class value
+        initClassCentroids(trainingData);
         m_globalCentroid = new Centroid(m_centroidNumAttributes);
-        m_classCentroids = new HashMap<>();
 
         // For each instance, add them into the global and class centroid
         for (Instance instance : trainingData) {
             // Get the class value
-            String classVal = instance.stringValue(instance.classIndex());
-            // Create the centroid for this class if we haven't already
-            if (!m_classCentroids.containsKey(classVal)) {
-                m_classCentroids.put(classVal, new Centroid(m_centroidNumAttributes));
-            }
+            int classVal = (int) instance.classValue();
 
             m_globalCentroid.addInstance(instance);
 
             // Get the centroid for this class
-            Centroid tempClassCentroid = m_classCentroids.get(classVal);
+            Centroid tempClassCentroid = m_classCentroids[classVal];
             // Add the value for this instance
             tempClassCentroid.addInstance(instance);
-            // Save the centroid
-            m_classCentroids.put(classVal, tempClassCentroid);
         }
 
         // After adding up all the attribute values, we finally average them to find the global and class centroid
         m_globalCentroid.averageValues();
-        for (String classVal : m_classCentroids.keySet()) {
-            Centroid c = m_classCentroids.get(classVal);
+        for (Centroid c : m_classCentroids) {
             c.averageValues();
-            m_classCentroids.put(classVal, c);
         }
     }
 
-    public double[] distributionForInstance(Instance testInstance) throws Exception {
-
-        m_NNSearch.addInstanceInfo(testInstance);
-
-        Instances neighbours = m_NNSearch.kNearestNeighbours(testInstance, m_K);
-
-        double[] dist = new double[testInstance.numClasses()];
-        for (Instance neighbour : neighbours) {
-            if (testInstance.classAttribute().isNominal()) {
-                dist[(int)neighbour.classValue()] += 1.0 / neighbours.numInstances();
-            } else {
-                dist[0] += neighbour.classValue() / neighbours.numInstances();
+    public double classifyInstance(Instance testInstance) {
+        double minDist = Double.MAX_VALUE;
+        double minDistClass = 0;
+        for (int i = 0; i < m_classCentroids.length; i++) {
+            Centroid c = m_classCentroids[i];
+            double tmpDist = c.getDistanceFromInstance(testInstance);
+            if (tmpDist < minDist) {
+                minDist = tmpDist;
+                minDistClass = i;
             }
         }
-        return dist;
+        return minDistClass;
     }
+
+//    public double[] distributionForInstance(Instance testInstance) throws Exception {
+//
+//        m_NNSearch.addInstanceInfo(testInstance);
+//
+//        Instances neighbours = m_NNSearch.kNearestNeighbours(testInstance, m_K);
+//
+//        double[] dist = new double[testInstance.numClasses()];
+//        for (Instance neighbour : neighbours) {
+//            if (testInstance.classAttribute().isNominal()) {
+//                dist[(int)neighbour.classValue()] += 1.0 / neighbours.numInstances();
+//            } else {
+//                dist[0] += neighbour.classValue() / neighbours.numInstances();
+//            }
+//        }
+//        return dist;
+//    }
 }
