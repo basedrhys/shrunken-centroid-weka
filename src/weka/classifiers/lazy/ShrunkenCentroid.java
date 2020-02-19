@@ -6,8 +6,11 @@ import weka.core.*;
 import weka.core.neighboursearch.LinearNNSearch;
 import weka.core.neighboursearch.NearestNeighbourSearch;
 
+import java.awt.*;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 public class ShrunkenCentroid extends AbstractClassifier {
 
@@ -31,17 +34,42 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
     private int m_centroidNumAttributes;
 
-    private double[] withinClassStandardDeviations;
-
     public void buildClassifier(Instances trainingData) throws Exception {
         trainingData = new Instances(trainingData);
         trainingData.deleteWithMissingClass();
 
         createCentroids(trainingData);
 
-        createSI(trainingData);
+        // Calculate Si for each i (for each attribute)
+        double[] withinClassStandardDeviations = calculateStandardDeviations(trainingData);
+        double stdDevMedian = calculateMedian(withinClassStandardDeviations);
 
         m_NNSearch.setInstances(trainingData);
+    }
+
+    private double calculateStandardizingParams() {
+        // Calculate an mk for each class
+        Set<String> classVals = m_classCentroids.keySet();
+        double[] mK = new double[classVals.size()];
+
+        for (String classVal : classVals) {
+            
+        }
+
+        return mK;
+    }
+
+    private double calculateMedian(double[] values) {
+        // Copy it as we need to sort the values to find median
+        double[] valuesCopy = values.clone();
+        Arrays.sort(valuesCopy);
+
+        int middle = valuesCopy.length / 2;
+        if (valuesCopy.length % 2 == 1) {
+            return valuesCopy[middle];
+        } else {
+            return (valuesCopy[middle-1] + valuesCopy[middle]) / 2.0;
+        }
     }
 
     private void printClassCentroids() {
@@ -50,9 +78,9 @@ public class ShrunkenCentroid extends AbstractClassifier {
         }
     }
 
-    private void createSI(@NotNull Instances trainingData) {
+    private double[] calculateStandardDeviations(@NotNull Instances trainingData) {
         int numClasses = m_classCentroids.keySet().size();
-        withinClassStandardDeviations = new double[m_centroidNumAttributes];
+        double[] withinClassStandardDeviations = new double[m_centroidNumAttributes];
         // 1 / n - K
         double stdValue = 1 / (float) (trainingData.numInstances() - numClasses);
 
@@ -81,6 +109,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
                 withinClassStandardDeviations[i] = sum;
             }
         }
+        return withinClassStandardDeviations;
     }
 
     private void createCentroids(Instances trainingData) {

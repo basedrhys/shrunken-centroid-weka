@@ -160,15 +160,4 @@
     </state>
     <state width="600" height="424" key="javadoc.popup/67.27.1853.1053/1920.0.1920.1080@67.27.1853.1053" timestamp="1582141784785" />
   </component>
-  <component name="XDebuggerManager">
-    <breakpoint-manager>
-      <breakpoints>
-        <line-breakpoint enabled="true" type="java-line">
-          <url>file://$PROJECT_DIR$/src/weka/classifiers/lazy/ShrunkenCentroid.java</url>
-          <line>43</line>
-          <option name="timeStamp" value="9" />
-        </line-breakpoint>
-      </breakpoints>
-    </breakpoint-manager>
-  </component>
 </project>
