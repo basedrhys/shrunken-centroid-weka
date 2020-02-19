@@ -1,5 +1,6 @@
 package weka.classifiers.lazy;
 
+import org.jetbrains.annotations.NotNull;
 import weka.classifiers.AbstractClassifier;
 import weka.core.*;
 import weka.core.neighboursearch.LinearNNSearch;
@@ -28,13 +29,17 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
     private Map<String, Centroid> m_classCentroids;
 
+    private int m_centroidNumAttributes;
+
+    private double[] withinClassStandardDeviations;
+
     public void buildClassifier(Instances trainingData) throws Exception {
         trainingData = new Instances(trainingData);
         trainingData.deleteWithMissingClass();
 
         createCentroids(trainingData);
 
-
+        createSI(trainingData);
 
         m_NNSearch.setInstances(trainingData);
     }
@@ -45,14 +50,43 @@ public class ShrunkenCentroid extends AbstractClassifier {
         }
     }
 
-    private void createSI() {
-        int i = 0;
+    private void createSI(@NotNull Instances trainingData) {
+        int numClasses = m_classCentroids.keySet().size();
+        withinClassStandardDeviations = new double[m_centroidNumAttributes];
+        // 1 / n - K
+        double stdValue = 1 / (float) (trainingData.numInstances() - numClasses);
+
+        for (int i = 0; i < trainingData.numAttributes(); i++) {
+            double sum = 0;
+            // Dont calculate for class attribute
+            if (trainingData.attribute(i) != trainingData.classAttribute()) {
+                // Outer sum : for all classes
+                for (String classVal : m_classCentroids.keySet()) {
+                    Centroid thisClassCentroid = m_classCentroids.get(classVal);
+                    // Inner sum : for all instances in this class
+                    for (Instance instance : thisClassCentroid.getInstances()) {
+                        // Xij - X-ik - difference between this instance and the class centroid for this attribute
+                        double dif = thisClassCentroid.getDifferenceFromInstanceAttribute(instance, i);
+                        // Square the value
+                        dif = dif * dif;
+                        // Add it to the sum for this attribute
+                        sum += dif;
+                    }
+                }
+                // Multiply it by the standard value
+                sum *= stdValue;
+                // Square root it
+                sum = Math.sqrt(sum);
+                // Save the standard deviation for this attribute
+                withinClassStandardDeviations[i] = sum;
+            }
+        }
     }
 
     private void createCentroids(Instances trainingData) {
-        int centroidNumAttributes = trainingData.numAttributes() - 1; // ignore class value
+        m_centroidNumAttributes = trainingData.numAttributes() - 1; // ignore class value
 
-        m_globalCentroid = new Centroid(centroidNumAttributes);
+        m_globalCentroid = new Centroid(m_centroidNumAttributes);
         m_classCentroids = new HashMap<>();
 
         // For each instance, add them into the global and class centroid
@@ -61,7 +95,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
             String classVal = instance.stringValue(instance.classIndex());
             // Create the centroid for this class if we haven't already
             if (!m_classCentroids.containsKey(classVal)) {
-                m_classCentroids.put(classVal, new Centroid(centroidNumAttributes));
+                m_classCentroids.put(classVal, new Centroid(m_centroidNumAttributes));
             }
 
             m_globalCentroid.addInstance(instance);
