@@ -205,12 +205,27 @@ public class ShrunkenCentroid extends AbstractClassifier {
     public double classifyInstance(Instance testInstance) {
         double minDist = Double.MAX_VALUE;
         double minDistClass = 0;
-        for (int i = 0; i < m_classCentroids.length; i++) {
-            Centroid c = m_classCentroids[i];
-            double tmpDist = c.getDistanceFromInstance(testInstance);
-            if (tmpDist < minDist) {
-                minDist = tmpDist;
-                minDistClass = i;
+        // Here we use equation [6]
+        for (int k = 0; k < m_classCentroids.length; k++) {
+            Centroid c = m_classCentroids[k];
+            double distanceSum = 0;
+            // sum from i = 1 to p
+            for (int i = 0; i < m_centroidNumAttributes; i++) {
+                double squaredDif = c.getDifferenceFromInstanceAttribute(testInstance, i);
+                // Actually square it
+                squaredDif *= squaredDif;
+                // bottom half of eq - (si + so)^2
+                double standardizeVal = allSi[i] + soMedian;
+                standardizeVal *= standardizeVal;
+                // Add this value into the sum over all attributes
+                double thisSum = squaredDif / standardizeVal;
+                distanceSum += thisSum;
+            }
+            double classPrior = c.getInstances().size() / (float) m_globalCentroid.getInstances().size();
+            double classPriorCorrection = distanceSum - (2 * Math.log(classPrior));
+            if (classPriorCorrection < minDist) {
+                minDist = classPriorCorrection;
+                minDistClass = k;
             }
         }
         return minDistClass;
