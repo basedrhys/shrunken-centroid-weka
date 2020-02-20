@@ -23,9 +23,12 @@ package weka.classifiers.lazy;
 
 import org.jetbrains.annotations.NotNull;
 import weka.classifiers.AbstractClassifier;
+import weka.classifiers.Classifier;
+import weka.classifiers.evaluation.Evaluation;
 import weka.core.*;
 
 import java.util.Arrays;
+import java.util.Random;
 
 /**
  <!-- globalinfo-start -->
@@ -88,7 +91,9 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
     // Main hyperparameter, controls how much shrinkage to perform on the centroids
     // Will be automatically found through CV in the future
-    protected double m_delta = 0.2;
+    protected double m_delta = -1;
+
+    private ShrunkenCentroid m_bestClassifier;
 
     // The global centroid -- average of *all* instances in the training set
     private Centroid m_globalCentroid;
@@ -117,7 +122,9 @@ public class ShrunkenCentroid extends AbstractClassifier {
     // Set to false to create a standard Nearest Centroid Classifier -- no shrinkage
     protected boolean doShrinkage = true;
 
-    public void buildClassifier(Instances trainingData) {
+    public void buildClassifier(Instances trainingData, double delta) {
+        m_delta = delta;
+
         trainingData = new Instances(trainingData);
         trainingData.deleteWithMissingClass();
 
@@ -137,6 +144,35 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
             // Shrink the centroids
             shrinkCentroids();
+        }
+    }
+
+    public void buildClassifier(Instances trainingData) throws Exception {
+//        buildClassifier(trainingData, 0.3);
+        double maxPercent = -1;
+        if (m_delta == -1) {
+            double[] deltaVals = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8};
+
+            Evaluation evaluation = new Evaluation(trainingData);
+            for (double delta :deltaVals) {
+                ShrunkenCentroid newClassifier = new ShrunkenCentroid();
+                newClassifier.buildClassifier(trainingData, delta);
+
+                evaluation.crossValidateModel(newClassifier, trainingData, 10, new Random(1));
+                double pctCorrect = evaluation.pctCorrect();
+                System.out.println(String.format("Delta: %f, correct: %f", delta, pctCorrect));
+                if (pctCorrect > maxPercent) {
+                    m_delta = delta;
+                    maxPercent = pctCorrect;
+                    m_bestClassifier = newClassifier;
+                    if (m_Debug) {
+                        System.out.println(String.format("Found better classifier with delta %f, accuracy = %3f", delta, pctCorrect));
+                    }
+                }
+            }
+            System.out.println(maxPercent);
+        } else {
+            buildClassifier(trainingData, m_delta);
         }
     }
 
@@ -303,6 +339,10 @@ public class ShrunkenCentroid extends AbstractClassifier {
     }
 
     public double classifyInstance(Instance testInstance) {
+        // If we've found an optimal model through CV, use that one
+        if (m_bestClassifier != null) {
+            return m_bestClassifier.classifyInstance(testInstance);
+        }
         // Max value as we want all calculated distances to be less
         double minDist = Double.MAX_VALUE;
         double minDistClass = 0;
