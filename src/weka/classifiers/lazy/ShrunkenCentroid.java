@@ -10,19 +10,33 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
     protected double m_delta = 1;
 
+    @OptionMetadata(
+            displayName = "Delta",
+            description = "Shrinkage parameter",
+            commandLineParamName = "D",
+            commandLineParamSynopsis = "-D <double>",
+            displayOrder = 1)
+    public double getDelta() {
+        return m_delta;
+    }
+
+    public void setDelta(int d) {
+        m_delta = d;
+    }
+
     private Centroid m_globalCentroid;
 
     private Centroid[] m_classCentroids;
 
     private int m_centroidNumAttributes;
 
-    double[] allSi;
-    // Calculate So (simply use the median of the Si values
-    double soMedian;
+    private double[] m_allSi;
 
-    double[] allMK;
+    private double[] m_allMK;
 
-    double[][] tStatistics;
+    private double m_soMedian;
+
+    private double[][] m_tStatisticsDik;
 
     public void buildClassifier(Instances trainingData) throws Exception {
         trainingData = new Instances(trainingData);
