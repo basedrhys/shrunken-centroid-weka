@@ -9,10 +9,10 @@ import java.util.List;
 
 class Centroid {
     // Instance to hold the values TODO should we use a double[] instead of Instance?
-    Instance m_inst;
+    private Instance m_inst;
 
     // Keep a list of instances for this class
-    List<Instance> m_instances;
+    private List<Instance> m_instances;
 
     public Centroid(int numAttributes) {
         m_inst = new DenseInstance(numAttributes, new double[numAttributes]);
