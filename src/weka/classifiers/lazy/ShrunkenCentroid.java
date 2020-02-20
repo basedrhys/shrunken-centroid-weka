@@ -1,3 +1,24 @@
+/*
+ *   This program is free software: you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation, either version 3 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+/*
+ *    ShrunkenCentroid.java
+ *    Copyright (C) 1999-2012 University of Waikato, Hamilton, New Zealand
+ *
+ */
+
 package weka.classifiers.lazy;
 
 import org.jetbrains.annotations.NotNull;
@@ -6,9 +27,50 @@ import weka.core.*;
 
 import java.util.Arrays;
 
-public class ShrunkenCentroid extends AbstractClassifier {
+/**
+ <!-- globalinfo-start -->
+ * Enhancement of a simple centroid classifier, this algorithm shrinks the centroids toward the global centroid
+ * to improve accuracy.
+ * <br/>
+ * For more information, see<br/>
+ * <br/>
+ * Diagnosis of multiple cancer types by shrunken centroids of gene expression
+ * Robert Tibshirani, Trevor Hastie, Balasubramanian Narasimhan, Gilbert Chu
+ * Proceedings of the National Academy of Sciences May 2002, 99 (10) 6567-6572; DOI: 10.1073/pnas.082099299
+ * <p/>
+ <!-- globalinfo-end -->
+ *
+ <!-- technical-bibtex-start -->
+ * BibTeX:
+ * <pre>
+ * &#64;article{tibshirani2002diagnosis,
+ *   title={Diagnosis of multiple cancer types by shrunken centroids of gene expression},
+ *   author={Tibshirani, Robert and Hastie, Trevor and Narasimhan, Balasubramanian and Chu, Gilbert},
+ *   journal={Proceedings of the National Academy of Sciences},
+ *   volume={99},
+ *   number={10},
+ *   pages={6567--6572},
+ *   year={2002},
+ *   publisher={National Acad Sciences}
+ * }
+ * </pre>
+ * <p/>
+ <!-- technical-bibtex-end -->
+ *
+ <!-- options-start -->
+ * Valid options are: <p/>
+ *
+ * <pre> -D
+ *  Delta -- shrinkage parameter, how much to shrink the centroids towards the global centroid.</pre>
+ *
+ <!-- options-end -->
+ *
+ * @author Rhys Compton (rhys.compton@gmail.com)
+ * @author Eibe Frank (eibe@cs.waikato.ac.nz)
+ * @version $Revision$
+ */
 
-    protected double m_delta = 1;
+public class ShrunkenCentroid extends AbstractClassifier {
 
     @OptionMetadata(
             displayName = "Delta",
@@ -250,7 +312,8 @@ public class ShrunkenCentroid extends AbstractClassifier {
      * @return the info describing the filter.
      */
     public String globalInfo() {
-        return "This filter performs feature extraction from images using the spherical k-means algorithm.";
+        return "This algorithm performs nearest-centroid classification, however as an enhancement," +
+                "shrinks the centroids toward the global centroid, controlled by the Delta parameter.";
     }
 
     /**
