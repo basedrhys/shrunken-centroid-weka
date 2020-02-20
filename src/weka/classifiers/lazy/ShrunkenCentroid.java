@@ -3,30 +3,10 @@ package weka.classifiers.lazy;
 import org.jetbrains.annotations.NotNull;
 import weka.classifiers.AbstractClassifier;
 import weka.core.*;
-import weka.core.neighboursearch.LinearNNSearch;
-import weka.core.neighboursearch.NearestNeighbourSearch;
 
-import java.awt.*;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
 
 public class ShrunkenCentroid extends AbstractClassifier {
-
-    protected int m_K = 1;
-
-    protected NearestNeighbourSearch m_NNSearch = new LinearNNSearch();
-
-    @OptionMetadata(displayName = "number of neighbours", description = "Number of neighbours to use (default = 1).",
-            commandLineParamName = "K", commandLineParamSynopsis = "-K <int>", displayOrder = 1)
-    public void setK(int k) {
-        m_K = k;
-    }
-
-    public int getK() {
-        return m_K;
-    }
 
     private Centroid m_globalCentroid;
 
