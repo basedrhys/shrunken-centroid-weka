@@ -4,10 +4,13 @@ import weka.core.Attribute;
 import weka.core.DenseInstance;
 import weka.core.Instance;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
-class Centroid {
+class Centroid implements Serializable  {
+    private static final long serialVersionUID = 0;
+
     // Instance to hold the values TODO should we use a double[] instead of Instance?
     private Instance m_inst;
 
