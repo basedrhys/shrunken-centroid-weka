@@ -8,6 +8,8 @@ import java.util.Arrays;
 
 public class ShrunkenCentroid extends AbstractClassifier {
 
+    protected double m_delta = 1;
+
     private Centroid m_globalCentroid;
 
     private Centroid[] m_classCentroids;
@@ -35,7 +37,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
         // Calculate Mk for all classes
         allMK = calculateStandardizingParamsForAllK(trainingData);
 
-        // Calculate dik for all i and k
+        // Calculate d'ik for all i and k
         calculateAllTStatistics(trainingData);
     }
 
@@ -56,9 +58,28 @@ public class ShrunkenCentroid extends AbstractClassifier {
                 double difFromGlobal = m_globalCentroid.getDifferenceFromInstanceAttribute(classCentroid.getInstance(), i);
                 // Bottom half of equation
                 double stdError = thisMk * (allSi[i] + soMedian);
-                tStatistics[i][k] = difFromGlobal / stdError;
+
+                double dik = difFromGlobal / stdError;
+                // Now calculate d'ik
+                double dPrime = getDPrime(dik);
+                // Save the value
+                tStatistics[i][k] = dPrime;
             }
         }
+    }
+
+    private double getDPrime(double dik) {
+        // Equation 5 in the paper
+        // Get the absolute difference between the value and delta
+        double difference  = Math.abs(dik) - m_delta;
+        // Only keep the positive part
+        if (difference < 0) {
+            difference = 0;
+        }
+
+        int sign = dik < 0 ? -1 : 1;
+        difference *= sign;
+        return difference;
     }
 
     private double[] calculateStandardizingParamsForAllK(Instances trainingData) {
