@@ -29,6 +29,10 @@ class Centroid {
         m_instances.add(inst);
     }
 
+    public Instance getInstance() {
+        return m_inst;
+    }
+
     public List<Instance> getInstances() {
         return m_instances;
     }

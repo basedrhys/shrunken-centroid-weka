@@ -14,6 +14,14 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
     private int m_centroidNumAttributes;
 
+    double[] allSi;
+    // Calculate So (simply use the median of the Si values
+    double soMedian;
+
+    double[] allMK;
+
+    double[][] tStatistics;
+
     public void buildClassifier(Instances trainingData) throws Exception {
         trainingData = new Instances(trainingData);
         trainingData.deleteWithMissingClass();
@@ -21,27 +29,57 @@ public class ShrunkenCentroid extends AbstractClassifier {
         createCentroids(trainingData);
 
         // Calculate Si for each i (for each attribute)
-        double[] withinClassStandardDeviations = calculateStandardDeviations(trainingData);
-        double stdDevMedian = calculateMedian(withinClassStandardDeviations);
-        double[] allMK = calculateStandardizingParams(trainingData);
+        allSi = calculateStandardDeviations(trainingData);
+        // Calculate So (simply use the median of the Si values
+        soMedian = calculateMedian(allSi);
+        // Calculate Mk for all classes
+        allMK = calculateStandardizingParamsForAllK(trainingData);
 
-        m_NNSearch.setInstances(trainingData);
+        // Calculate dik for all i and k
+        calculateAllTStatistics(trainingData);
     }
 
-    private double[] calculateStandardizingParams(Instances trainingData) {
+    private void calculateAllTStatistics(Instances trainingData) {
+        // Make a 2d array with i rows (i attributes) and k columns (k classes)
+        tStatistics = new double[m_centroidNumAttributes][m_classCentroids.length];
+
+        // Now iterate over all attributes and calculate the t statistic for each class
+        // (equation 1 in the paper, for calculating dik)
+        for (int k = 0; k < m_classCentroids.length; k++) {
+
+            // Get this class centroid and class Mk
+            Centroid classCentroid = m_classCentroids[k];
+            double thisMk = allMK[k];
+
+            for (int i = 0; i < m_centroidNumAttributes; i++) {
+                // Top half of equation
+                double difFromGlobal = m_globalCentroid.getDifferenceFromInstanceAttribute(classCentroid.getInstance(), i);
+                // Bottom half of equation
+                double stdError = thisMk * (allSi[i] + soMedian);
+                tStatistics[i][k] = difFromGlobal / stdError;
+            }
+        }
+    }
+
+    private double[] calculateStandardizingParamsForAllK(Instances trainingData) {
         // Calculate an mk for each class
-        double[] allMK = new double[m_classCentroids.length];
+        double[] mkForAllK = new double[m_classCentroids.length];
 
-        double oneOverAll = 1 / trainingData.numInstances();
+        double oneOverAll = 1f / trainingData.numInstances();
 
+        // Loop over all classes
         for (int i = 0; i < m_classCentroids.length; i++) {
+            // Get the relevant class centroid
             Centroid c = m_classCentroids[i];
-            double firstEq = 1 / c.getInstances().size();
+            // Calculate the first half of the equation (TODO give more meaningful names)
+            double firstEq = 1f / c.getInstances().size();
+            // Calculate the actual Mk
             double mk = Math.sqrt(firstEq + oneOverAll);
-            allMK[i] = mk;
+            // Save the value
+            mkForAllK[i] = mk;
         }
 
-        return allMK;
+        return mkForAllK;
     }
 
     private double calculateMedian(double[] values) {
@@ -58,12 +96,12 @@ public class ShrunkenCentroid extends AbstractClassifier {
     }
 
     private double[] calculateStandardDeviations(@NotNull Instances trainingData) {
-        int numClasses = m_classCentroids.length;
         double[] withinClassStandardDeviations = new double[m_centroidNumAttributes];
         // 1 / n - K
-        double stdValue = 1 / (float) (trainingData.numInstances() - numClasses);
+        double stdValue = 1 / (float) (trainingData.numInstances() - m_classCentroids.length);
 
-        for (int i = 0; i < trainingData.numAttributes(); i++) {
+        // We want to calculate Si for all i
+        for (int i = 0; i < m_centroidNumAttributes; i++) {
             double sum = 0;
             // Dont calculate for class attribute
             if (trainingData.attribute(i) != trainingData.classAttribute()) {
