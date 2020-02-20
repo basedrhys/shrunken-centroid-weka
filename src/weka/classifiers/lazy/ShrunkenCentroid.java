@@ -45,11 +45,11 @@ public class ShrunkenCentroid extends AbstractClassifier {
         createCentroids(trainingData);
 
         // Calculate Si for each i (for each attribute)
-        allSi = calculateStandardDeviations(trainingData);
+        m_allSi = calculateStandardDeviations(trainingData);
         // Calculate So (simply use the median of the Si values
-        soMedian = calculateMedian(allSi);
+        m_soMedian = calculateMedian(m_allSi);
         // Calculate Mk for all classes
-        allMK = calculateStandardizingParamsForAllK(trainingData);
+        m_allMK = calculateStandardizingParamsForAllK(trainingData);
 
         // Calculate d'ik for all i and k
         calculateAllTStatistics(trainingData);
@@ -65,11 +65,11 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
             // Get this class centroid and class Mk
             Centroid classCentroid = m_classCentroids[k];
-            double thisMk = allMK[k];
+            double thisMk = m_allMK[k];
 
             for (int i = 0; i < m_centroidNumAttributes; i++) {
                 //x(hat)i + mk(si + so)d'ik
-                double newAttrValue = m_globalCentroid.getValue(i) + thisMk * (allSi[i] + soMedian) * tStatistics[i][k];
+                double newAttrValue = m_globalCentroid.getValue(i) + thisMk * (m_allSi[i] + m_soMedian) * m_tStatisticsDik[i][k];
                 classCentroid.setValue(i, newAttrValue);
             }
         }
@@ -78,7 +78,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
     private void calculateAllTStatistics(Instances trainingData) {
         // Make a 2d array with i rows (i attributes) and k columns (k classes)
         // dik
-        tStatistics = new double[m_centroidNumAttributes][m_classCentroids.length];
+        m_tStatisticsDik = new double[m_centroidNumAttributes][m_classCentroids.length];
 
         // Now iterate over all attributes and calculate the t statistic for each class
         // (equation 1 in the paper, for calculating dik)
@@ -86,19 +86,19 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
             // Get this class centroid and class Mk
             Centroid classCentroid = m_classCentroids[k];
-            double thisMk = allMK[k];
+            double thisMk = m_allMK[k];
 
             for (int i = 0; i < m_centroidNumAttributes; i++) {
                 // Top half of equation
                 double difFromGlobal = m_globalCentroid.getDifferenceFromInstanceAttribute(classCentroid.getInstance(), i);
                 // Bottom half of equation
-                double stdError = thisMk * (allSi[i] + soMedian);
+                double stdError = thisMk * (m_allSi[i] + m_soMedian);
 
                 double dik = difFromGlobal / stdError;
                 // Now calculate d'ik
                 double dPrime = getDPrime(dik);
                 // Save the value
-                tStatistics[i][k] = dPrime;
+                m_tStatisticsDik[i][k] = dPrime;
             }
         }
     }
@@ -229,7 +229,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
                 // Actually square it
                 squaredDif *= squaredDif;
                 // bottom half of eq - (si + so)^2
-                double standardizeVal = allSi[i] + soMedian;
+                double standardizeVal = m_allSi[i] + m_soMedian;
                 standardizeVal *= standardizeVal;
                 // Add this value into the sum over all attributes
                 double thisSum = squaredDif / standardizeVal;
@@ -245,20 +245,22 @@ public class ShrunkenCentroid extends AbstractClassifier {
         return minDistClass;
     }
 
-//    public double[] distributionForInstance(Instance testInstance) throws Exception {
-//
-//        m_NNSearch.addInstanceInfo(testInstance);
-//
-//        Instances neighbours = m_NNSearch.kNearestNeighbours(testInstance, m_K);
-//
-//        double[] dist = new double[testInstance.numClasses()];
-//        for (Instance neighbour : neighbours) {
-//            if (testInstance.classAttribute().isNominal()) {
-//                dist[(int)neighbour.classValue()] += 1.0 / neighbours.numInstances();
-//            } else {
-//                dist[0] += neighbour.classValue() / neighbours.numInstances();
-//            }
-//        }
-//        return dist;
-//    }
+    /**
+     * The info shown in the GUI.
+     * @return the info describing the filter.
+     */
+    public String globalInfo() {
+        return "This filter performs feature extraction from images using the spherical k-means algorithm.";
+    }
+
+    /**
+     * The capabilities of this filter.
+     * @return the capabilities
+     */
+    public Capabilities getCapabilities() {
+        Capabilities result = super.getCapabilities();
+        result.enable(Capabilities.Capability.STRING_ATTRIBUTES);
+        result.enableAllClasses();
+        return result;
+    }
 }
