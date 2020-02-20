@@ -19,6 +19,14 @@ class Centroid {
         m_instances = new ArrayList<>();
     }
 
+    public void setValue(int i, double v) {
+        m_inst.setValue(i, v);
+    }
+
+    public double getValue(int i) {
+        return m_inst.value(i);
+    }
+
     public void addInstance(Instance inst) { // TODO work around for class value not being the last val
         // Add all attribute values from this instance to both the global centroid
         // and the appropriate class centroid

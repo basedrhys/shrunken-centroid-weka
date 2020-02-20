@@ -39,10 +39,31 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
         // Calculate d'ik for all i and k
         calculateAllTStatistics(trainingData);
+
+        // Shrink the centroids
+        shrinkCentroids();
+    }
+
+    private void shrinkCentroids() {
+        // Using the values calculated, we finally shrink the centroids
+        // equation 4 in the paper
+        for (int k = 0; k < m_classCentroids.length; k++) {
+
+            // Get this class centroid and class Mk
+            Centroid classCentroid = m_classCentroids[k];
+            double thisMk = allMK[k];
+
+            for (int i = 0; i < m_centroidNumAttributes; i++) {
+                //x(hat)i + mk(si + so)d'ik
+                double newAttrValue = m_globalCentroid.getValue(i) + thisMk * (allSi[i] + soMedian) * tStatistics[i][k];
+                classCentroid.setValue(i, newAttrValue);
+            }
+        }
     }
 
     private void calculateAllTStatistics(Instances trainingData) {
         // Make a 2d array with i rows (i attributes) and k columns (k classes)
+        // dik
         tStatistics = new double[m_centroidNumAttributes][m_classCentroids.length];
 
         // Now iterate over all attributes and calculate the t statistic for each class
