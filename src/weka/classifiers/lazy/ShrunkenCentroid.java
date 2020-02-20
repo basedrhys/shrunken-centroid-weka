@@ -43,22 +43,22 @@ public class ShrunkenCentroid extends AbstractClassifier {
         // Calculate Si for each i (for each attribute)
         double[] withinClassStandardDeviations = calculateStandardDeviations(trainingData);
         double stdDevMedian = calculateMedian(withinClassStandardDeviations);
-        Map<String, Double> allMK = calculateStandardizingParams(trainingData);
-        
+        double[] allMK = calculateStandardizingParams(trainingData);
+
         m_NNSearch.setInstances(trainingData);
     }
 
-    private Map<String, Double> calculateStandardizingParams(Instances trainingData) {
+    private double[] calculateStandardizingParams(Instances trainingData) {
         // Calculate an mk for each class
-        Set<String> classVals = m_classCentroids.keySet();
-        Map<String, Double> allMK = new HashMap<>();
+        double[] allMK = new double[m_classCentroids.length];
 
         double oneOverAll = 1 / trainingData.numInstances();
 
-        for (String classVal : classVals) {
-            double firstEq = 1 / m_classCentroids.get(classVal).getInstances().size();
+        for (int i = 0; i < m_classCentroids.length; i++) {
+            Centroid c = m_classCentroids[i];
+            double firstEq = 1 / c.getInstances().size();
             double mk = Math.sqrt(firstEq + oneOverAll);
-            allMK.put(classVal, mk);
+            allMK[i] = mk;
         }
 
         return allMK;
