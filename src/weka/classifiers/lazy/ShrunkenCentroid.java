@@ -86,38 +86,56 @@ public class ShrunkenCentroid extends AbstractClassifier {
         m_delta = d;
     }
 
+    // Main hyperparameter, controls how much shrinkage to perform on the centroids
+    // Will be automatically found through CV in the future
+    protected double m_delta = 0.2;
+
+    // The global centroid -- average of *all* instances in the training set
     private Centroid m_globalCentroid;
 
+    // Class level centroids -- average of all instances for each class, in order of class values
     private Centroid[] m_classCentroids;
 
+    // Number of attributes for the centroids
     private int m_centroidNumAttributes;
 
-    private double[] m_allSi;
+    // Within-class standard deviation for all attributes (for all i)
+    private double[] m_withinClassStdDevSi;
 
+    //
     private double[] m_allMK;
 
-    private double m_soMedian;
+    // Median of all the within-class standard deviations, 'So' in the paper formulas
+    private double m_medianSo;
 
+    // Collection of t statistics for attribute i, comparing class k to the overall centroid,
+    // 'dik' in the paper formulas
     private double[][] m_tStatisticsDik;
 
-    public void buildClassifier(Instances trainingData) throws Exception {
+    // Set to false to create a standard Nearest Centroid Classifier -- no shrinkage
+    protected boolean doShrinkage = true;
+
+    public void buildClassifier(Instances trainingData) {
         trainingData = new Instances(trainingData);
         trainingData.deleteWithMissingClass();
 
-        createCentroids(trainingData);
+        // Create the global and class centroids
+        calculateCentroids(trainingData);
 
-        // Calculate Si for each i (for each attribute)
-        m_allSi = calculateStandardDeviations(trainingData);
-        // Calculate So (simply use the median of the Si values
-        m_soMedian = calculateMedian(m_allSi);
-        // Calculate Mk for all classes
-        m_allMK = calculateStandardizingParamsForAllK(trainingData);
+        if (doShrinkage) {
+            // Calculate Si for each i (for each attribute)
+            calculateStandardDeviations(trainingData);
+            // Calculate So (simply use the median of the Si values
+            calculateMedian(m_withinClassStdDevSi);
+            // Calculate Mk for all classes
+            calculateStandardizingParamsForAllK(trainingData);
 
-        // Calculate d'ik for all i and k
-        calculateAllTStatistics(trainingData);
+            // Calculate d'ik for all i and k (all attributes and class centroids)
+            calculateAllTStatistics();
 
-        // Shrink the centroids
-        shrinkCentroids();
+            // Shrink the centroids
+            shrinkCentroids();
+        }
     }
 
     private void shrinkCentroids() {
@@ -131,19 +149,18 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
             for (int i = 0; i < m_centroidNumAttributes; i++) {
                 //x(hat)i + mk(si + so)d'ik
-                double newAttrValue = m_globalCentroid.getValue(i) + thisMk * (m_allSi[i] + m_soMedian) * m_tStatisticsDik[i][k];
+                double newAttrValue = m_globalCentroid.getValue(i) + thisMk * (m_withinClassStdDevSi[i] + m_medianSo) * m_tStatisticsDik[i][k];
                 classCentroid.setValue(i, newAttrValue);
             }
         }
     }
 
-    private void calculateAllTStatistics(Instances trainingData) {
+    private void calculateAllTStatistics() {
         // Make a 2d array with i rows (i attributes) and k columns (k classes)
-        // dik
         m_tStatisticsDik = new double[m_centroidNumAttributes][m_classCentroids.length];
 
         // Now iterate over all attributes and calculate the t statistic for each class
-        // (equation 1 in the paper, for calculating dik)
+        // (equation 1 in the paper, for calculating dik, and equation 5 for d'ik)
         for (int k = 0; k < m_classCentroids.length; k++) {
 
             // Get this class centroid and class Mk
@@ -151,13 +168,14 @@ public class ShrunkenCentroid extends AbstractClassifier {
             double thisMk = m_allMK[k];
 
             for (int i = 0; i < m_centroidNumAttributes; i++) {
-                // Top half of equation
+                // Top half of equation 1
                 double difFromGlobal = m_globalCentroid.getDifferenceFromInstanceAttribute(classCentroid.getInstance(), i);
-                // Bottom half of equation
-                double stdError = thisMk * (m_allSi[i] + m_soMedian);
-
+                // Bottom half of equation 1
+                double stdError = thisMk * (m_withinClassStdDevSi[i] + m_medianSo);
+                // Finish equation 1
                 double dik = difFromGlobal / stdError;
-                // Now calculate d'ik
+
+                // Now calculate d'ik - equation 5
                 double dPrime = getDPrime(dik);
                 // Save the value
                 m_tStatisticsDik[i][k] = dPrime;
@@ -167,67 +185,66 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
     private double getDPrime(double dik) {
         // Equation 5 in the paper
+
         // Get the absolute difference between the value and delta
         double difference  = Math.abs(dik) - m_delta;
         // Only keep the positive part
         if (difference < 0) {
             difference = 0;
         }
-
+        // Add the sign back in
         int sign = dik < 0 ? -1 : 1;
         difference *= sign;
+        // Equation 5 finished
         return difference;
     }
 
-    private double[] calculateStandardizingParamsForAllK(Instances trainingData) {
-        // Calculate an mk for each class
-        double[] mkForAllK = new double[m_classCentroids.length];
-
+    private void calculateStandardizingParamsForAllK(Instances trainingData) {
+        // Calculate an mk for each class, just after equation 2
+        m_allMK = new double[m_classCentroids.length];
+        // TODO more meaningful name
         double oneOverAll = 1f / trainingData.numInstances();
 
         // Loop over all classes
         for (int i = 0; i < m_classCentroids.length; i++) {
             // Get the relevant class centroid
             Centroid c = m_classCentroids[i];
-            // Calculate the first half of the equation (TODO give more meaningful names)
+            // Calculate the first half of the equation (1/nk) TODO give more meaningful names
             double firstEq = 1f / c.getInstances().size();
             // Calculate the actual Mk
             double mk = Math.sqrt(firstEq + oneOverAll);
             // Save the value
-            mkForAllK[i] = mk;
+            m_allMK[i] = mk;
         }
-
-        return mkForAllK;
     }
 
-    private double calculateMedian(double[] values) {
+    private void calculateMedian(double[] values) {
         // Copy it as we need to sort the values to find median
         double[] valuesCopy = values.clone();
         Arrays.sort(valuesCopy);
 
         int middle = valuesCopy.length / 2;
         if (valuesCopy.length % 2 == 1) {
-            return valuesCopy[middle];
+            m_medianSo = valuesCopy[middle];
         } else {
-            return (valuesCopy[middle-1] + valuesCopy[middle]) / 2.0;
+            m_medianSo = (valuesCopy[middle-1] + valuesCopy[middle]) / 2.0;
         }
     }
 
-    private double[] calculateStandardDeviations(@NotNull Instances trainingData) {
-        double[] withinClassStandardDeviations = new double[m_centroidNumAttributes];
+    private void calculateStandardDeviations(@NotNull Instances trainingData) {
+        // Equation 2 in the paper, calculate within-class std dev
+        m_withinClassStdDevSi = new double[m_centroidNumAttributes];
         // 1 / n - K
         double stdValue = 1 / (float) (trainingData.numInstances() - m_classCentroids.length);
 
         // We want to calculate Si for all i
         for (int i = 0; i < m_centroidNumAttributes; i++) {
             double sum = 0;
-            // Dont calculate for class attribute
-            if (trainingData.attribute(i) != trainingData.classAttribute()) {
                 // Outer sum : for all classes
                 for (Centroid thisClassCentroid : m_classCentroids) {
                     // Inner sum : for all instances in this class
                     for (Instance instance : thisClassCentroid.getInstances()) {
-                        // Xij - X-ik - difference between this instance and the class centroid for this attribute
+                        // Xij - X-ik - difference of this attribute between this instance and the class centroid
                         double dif = thisClassCentroid.getDifferenceFromInstanceAttribute(instance, i);
                         // Square the value
                         dif = dif * dif;
@@ -237,26 +254,21 @@ public class ShrunkenCentroid extends AbstractClassifier {
                 }
                 // Multiply it by the standard value
                 sum *= stdValue;
-                // Square root it
+                // Square root it (equation 2 is for si^2, we want si)
                 sum = Math.sqrt(sum);
                 // Save the standard deviation for this attribute
-                withinClassStandardDeviations[i] = sum;
-            }
+                m_withinClassStdDevSi[i] = sum;
         }
-        return withinClassStandardDeviations;
     }
 
-    private void initClassCentroids(Instances trainingData) {
+    private void calculateCentroids(@NotNull Instances trainingData) {
+        m_centroidNumAttributes = trainingData.numAttributes() - 1; // ignore class value for calculating centroids
+        // Init the global and class centroids
+        m_globalCentroid = new Centroid(m_centroidNumAttributes);
         m_classCentroids = new Centroid[trainingData.classAttribute().numValues()];
         for (int i = 0; i < m_classCentroids.length; i++) {
             m_classCentroids[i] = new Centroid(m_centroidNumAttributes);
         }
-    }
-
-    private void createCentroids(@NotNull Instances trainingData) {
-        m_centroidNumAttributes = trainingData.numAttributes() - 1; // ignore class value
-        initClassCentroids(trainingData);
-        m_globalCentroid = new Centroid(m_centroidNumAttributes);
 
         // For each instance, add them into the global and class centroid
         for (Instance instance : trainingData) {
@@ -279,29 +291,48 @@ public class ShrunkenCentroid extends AbstractClassifier {
     }
 
     public double classifyInstance(Instance testInstance) {
+        // Max value as we want all calculated distances to be less
         double minDist = Double.MAX_VALUE;
         double minDistClass = 0;
-        // Here we use equation [6]
-        for (int k = 0; k < m_classCentroids.length; k++) {
-            Centroid c = m_classCentroids[k];
-            double distanceSum = 0;
-            // sum from i = 1 to p
-            for (int i = 0; i < m_centroidNumAttributes; i++) {
-                double squaredDif = c.getDifferenceFromInstanceAttribute(testInstance, i);
-                // Actually square it
-                squaredDif *= squaredDif;
-                // bottom half of eq - (si + so)^2
-                double standardizeVal = m_allSi[i] + m_soMedian;
-                standardizeVal *= standardizeVal;
-                // Add this value into the sum over all attributes
-                double thisSum = squaredDif / standardizeVal;
-                distanceSum += thisSum;
+        if (doShrinkage) {
+            // We need to scale the instances once we've shrunken the centroids
+            // Here we use equation [6]
+            // Find the centroid with the lowest distance
+            for (int k = 0; k < m_classCentroids.length; k++) {
+                Centroid classCentroid = m_classCentroids[k];
+                double distanceSum = 0;
+                // sum from i = 1 to p
+                for (int i = 0; i < m_centroidNumAttributes; i++) {
+                    double squaredDif = classCentroid.getDifferenceFromInstanceAttribute(testInstance, i);
+                    // Actually square it
+                    squaredDif *= squaredDif;
+                    // bottom half of eq - (si + so)^2
+                    double standardizeVal = m_withinClassStdDevSi[i] + m_medianSo;
+                    standardizeVal *= standardizeVal;
+                    // Add this value into the sum over all attributes
+                    double thisSum = squaredDif / standardizeVal;
+                    distanceSum += thisSum;
+                }
+                // Last part of equation -- 2 log pi k
+                // Proportion of instances in this class
+                double classPrior = classCentroid.getInstances().size() / (float) m_globalCentroid.getInstances().size();
+                double distanceCorrected = distanceSum - (2 * Math.log(classPrior));
+                if (distanceCorrected < minDist) {
+                    minDist = distanceCorrected;
+                    minDistClass = k;
+                }
             }
-            double classPrior = c.getInstances().size() / (float) m_globalCentroid.getInstances().size();
-            double classPriorCorrection = distanceSum - (2 * Math.log(classPrior));
-            if (classPriorCorrection < minDist) {
-                minDist = classPriorCorrection;
-                minDistClass = k;
+        } else {
+            // Perform a standard nearest centroid classification if we're not doing shrinkage
+            for (int i = 0; i < m_classCentroids.length; i++) {
+                // Calculate the distance to each centroid
+                Centroid classCentroid = m_classCentroids[i];
+                double tmpDist = classCentroid.getDistanceFromInstance(testInstance);
+                // Save the lowest distance and the class
+                if (tmpDist < minDist) {
+                    minDist = tmpDist;
+                    minDistClass = i;
+                }
             }
         }
         return minDistClass;
