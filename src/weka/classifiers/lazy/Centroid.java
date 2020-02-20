@@ -48,6 +48,8 @@ class Centroid implements Serializable  {
         return m_instances;
     }
 
+    public int numAttributes() { return m_inst.numAttributes(); }
+
     public double getDifferenceFromInstanceAttribute(Instance instance, int attributeI) {
         return instance.value(attributeI) - m_inst.value(attributeI);
     }

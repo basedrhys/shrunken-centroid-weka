@@ -96,8 +96,10 @@ public class ShrunkenCentroid extends AbstractClassifier {
     // Class level centroids -- average of all instances for each class, in order of class values
     private Centroid[] m_classCentroids;
 
-    // Number of attributes for the centroids
-    private int m_centroidNumAttributes;
+//    // Number of attributes for the centroids
+//    private int m_centroidNumAttributes;
+
+    private int m_classAttributeIndex;
 
     // Within-class standard deviation for all attributes (for all i)
     private double[] m_withinClassStdDevSi;
@@ -147,7 +149,10 @@ public class ShrunkenCentroid extends AbstractClassifier {
             Centroid classCentroid = m_classCentroids[k];
             double thisMk = m_allMK[k];
 
-            for (int i = 0; i < m_centroidNumAttributes; i++) {
+            for (int i = 0; i < m_globalCentroid.numAttributes(); i++) {
+                // Ignore the class attribute
+                if (i == m_classAttributeIndex)
+                    continue;
                 //x(hat)i + mk(si + so)d'ik
                 double newAttrValue = m_globalCentroid.getValue(i) + thisMk * (m_withinClassStdDevSi[i] + m_medianSo) * m_tStatisticsDik[i][k];
                 classCentroid.setValue(i, newAttrValue);
@@ -157,7 +162,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
     private void calculateAllTStatistics() {
         // Make a 2d array with i rows (i attributes) and k columns (k classes)
-        m_tStatisticsDik = new double[m_centroidNumAttributes][m_classCentroids.length];
+        m_tStatisticsDik = new double[m_globalCentroid.numAttributes()][m_classCentroids.length];
 
         // Now iterate over all attributes and calculate the t statistic for each class
         // (equation 1 in the paper, for calculating dik, and equation 5 for d'ik)
@@ -167,7 +172,10 @@ public class ShrunkenCentroid extends AbstractClassifier {
             Centroid classCentroid = m_classCentroids[k];
             double thisMk = m_allMK[k];
 
-            for (int i = 0; i < m_centroidNumAttributes; i++) {
+            for (int i = 0; i < m_globalCentroid.numAttributes(); i++) {
+                // Ignore the class attribute
+                if (i == m_classAttributeIndex)
+                    continue;
                 // Top half of equation 1
                 double difFromGlobal = m_globalCentroid.getDifferenceFromInstanceAttribute(classCentroid.getInstance(), i);
                 // Bottom half of equation 1
@@ -233,12 +241,15 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
     private void calculateStandardDeviations(@NotNull Instances trainingData) {
         // Equation 2 in the paper, calculate within-class std dev
-        m_withinClassStdDevSi = new double[m_centroidNumAttributes];
+        m_withinClassStdDevSi = new double[m_globalCentroid.numAttributes()];
         // 1 / n - K
         double stdValue = 1 / (float) (trainingData.numInstances() - m_classCentroids.length);
 
         // We want to calculate Si for all i
-        for (int i = 0; i < m_centroidNumAttributes; i++) {
+        for (int i = 0; i < m_globalCentroid.numAttributes(); i++) {
+            // Ignore the class attribute
+            if (i == m_classAttributeIndex)
+                continue;
             double sum = 0;
                 // Outer sum : for all classes
                 for (Centroid thisClassCentroid : m_classCentroids) {
@@ -262,12 +273,13 @@ public class ShrunkenCentroid extends AbstractClassifier {
     }
 
     private void calculateCentroids(@NotNull Instances trainingData) {
-        m_centroidNumAttributes = trainingData.numAttributes() - 1; // ignore class value for calculating centroids
+//        m_centroidNumAttributes = trainingData.numAttributes() - 1; // ignore class value for calculating centroids
         // Init the global and class centroids
-        m_globalCentroid = new Centroid(m_centroidNumAttributes);
+        m_globalCentroid = new Centroid(trainingData.numAttributes());
+        m_classAttributeIndex = trainingData.classIndex();
         m_classCentroids = new Centroid[trainingData.classAttribute().numValues()];
         for (int i = 0; i < m_classCentroids.length; i++) {
-            m_classCentroids[i] = new Centroid(m_centroidNumAttributes);
+            m_classCentroids[i] = new Centroid(trainingData.numAttributes());
         }
 
         // For each instance, add them into the global and class centroid
@@ -302,7 +314,10 @@ public class ShrunkenCentroid extends AbstractClassifier {
                 Centroid classCentroid = m_classCentroids[k];
                 double distanceSum = 0;
                 // sum from i = 1 to p
-                for (int i = 0; i < m_centroidNumAttributes; i++) {
+                for (int i = 0; i < m_globalCentroid.numAttributes(); i++) {
+                    // Ignore the class attribute
+                    if (i == m_classAttributeIndex)
+                        continue;
                     double squaredDif = classCentroid.getDifferenceFromInstanceAttribute(testInstance, i);
                     // Actually square it
                     squaredDif *= squaredDif;
