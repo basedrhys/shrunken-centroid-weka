@@ -74,31 +74,27 @@ import java.util.Random;
 public class ShrunkenCentroid extends AbstractClassifier {
 
     @OptionMetadata(
-            displayName = "Delta",
+            displayName = "Shrinkage",
             description = "Shrinkage parameter",
-            commandLineParamName = "D",
-            commandLineParamSynopsis = "-D <double>",
+            commandLineParamName = "S",
+            commandLineParamSynopsis = "-S <double>",
             displayOrder = 1)
-    public double getDelta() {
+    public double getShrinkage() {
         return m_shrinkageThreshold;
     }
 
-    public void setDelta(int d) {
+    public void setShrinkage(int d) {
         m_shrinkageThreshold = d;
     }
 
     // Main hyperparameter, controls how much shrinkage to perform on the centroids
-    // Will be automatically found through CV in the future
-    protected double m_shrinkageThreshold = -1;
+    private double m_shrinkageThreshold = -1;
 
     // The global centroid -- average of *all* instances in the training set
     private Centroid m_globalCentroid;
 
     // Class level centroids -- average of all instances for each class, in order of class values
     private Centroid[] m_classCentroids;
-
-//    // Number of attributes for the centroids
-//    private int m_centroidNumAttributes;
 
     private int m_classAttributeIndex;
 
@@ -115,39 +111,11 @@ public class ShrunkenCentroid extends AbstractClassifier {
     // 'dik' in the paper formulas
     private double[][] m_tStatisticsDik;
 
-    private double maxTStatistic = -1;
+    //
+    private double m_maxTStatistic = -1;
 
     // Set to false to create a standard Nearest Centroid Classifier -- no shrinkage
     protected boolean doShrinkage = true;
-
-    private double currThresh = -1;
-
-//    public void buildClassifier(Instances trainingData, double delta) {
-//        m_shrinkageThreshold = delta;
-//
-//        trainingData = new Instances(trainingData);
-//        trainingData.deleteWithMissingClass();
-//
-//        // Create the global and class centroids
-//        calculateCentroids(trainingData);
-//
-//        // Shrink the centroids
-//        shrinkCentroids();
-////
-////        if (doShrinkage) {
-////            // Calculate Si for each i (for each attribute)
-////            calculateStandardDeviations(trainingData);
-////            // Calculate So (simply use the median of the Si values
-////            calculateMedian(m_withinClassStdDevSi);
-////            // Calculate Mk for all classes
-////            calculateStandardizingParamsForAllK(trainingData);
-////
-////            // Calculate d'ik for all i and k (all attributes and class centroids)
-////            calculateAllTStatistics();
-////
-////
-////        }
-//    }
 
     private void doDatasetCalculations(Instances trainingData) {
         trainingData = new Instances(trainingData);
@@ -167,10 +135,10 @@ public class ShrunkenCentroid extends AbstractClassifier {
         calculateAllTStatistics();
     }
 
-    private double[] calculateShrinkageThreshold() {
+    private double[] calculateShrinkageThresholds() {
         float current = 0;
         int totalCount = 30;
-        float end = (float) maxTStatistic;
+        float end = (float) m_maxTStatistic;
         float step = end / (totalCount - 1);
 
         double[] ret = new double[totalCount];
@@ -185,18 +153,33 @@ public class ShrunkenCentroid extends AbstractClassifier {
     public void buildClassifier(Instances trainingData) throws Exception {
         double maxPercent = -1;
         double bestThreshold = 0;
-        if (currThresh == -1) {
+        m_Debug = true;
+        // This ensures that the buildClassifier() function isn't called recursively forever
+        // When buildClassifier() is called during the crossValidationModel() below,
+        // m_shrinkageThreshold will not be -1, so the whole block will be skipped.
+        if (m_shrinkageThreshold == -1) {
+            // Do the non-threshold calculations on the dataset
+            // i.e. calculate overall centroids, standard deviations...
             doDatasetCalculations(trainingData);
 
-            double[] thresholds = calculateShrinkageThreshold();
+            // Calculate all the different shrinkage thresholds we'll try
+            double[] thresholds = calculateShrinkageThresholds();
 
             Evaluation evaluation = new Evaluation(trainingData);
             for (double threshold : thresholds) {
-                currThresh = threshold;
+
+                // Using this current threshold, shrink the centroids
+                m_shrinkageThreshold = threshold;
                 shrinkCentroids();
 
+                // Perform 10 fold CV using the shrunken centroids
                 evaluation.crossValidateModel(this, trainingData, 10, new Random(1));
                 double pctCorrect = evaluation.pctCorrect();
+                if (m_Debug) {
+                    System.out.printf("%3f --- %3f\n", threshold, evaluation.pctCorrect());
+                }
+                // If this is better than the previous best, set this as the new best
+                // threshold
                 if (pctCorrect > maxPercent) {
                     bestThreshold = threshold;
                     maxPercent = pctCorrect;
@@ -205,9 +188,11 @@ public class ShrunkenCentroid extends AbstractClassifier {
                     }
                 }
             }
+            if (m_Debug) {
+                System.out.println("Using best threshold value of: " + bestThreshold);
+            }
             // Finally use the best shrinkage we found during CV
-            System.out.println("Using best threshold value of: " + bestThreshold);
-            currThresh = bestThreshold;
+            m_shrinkageThreshold = bestThreshold;
             shrinkCentroids();
         }
     }
@@ -224,7 +209,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
                 // Ignore the class attribute
                 if (i == m_classAttributeIndex)
                     continue;
-                double dPrimeik = getDPrime(m_tStatisticsDik[i][k], currThresh);
+                double dPrimeik = getDPrime(m_tStatisticsDik[i][k], m_shrinkageThreshold);
                 //x(hat)i + mk(si + so)d'ik
                 double newAttrValue = m_globalCentroid.getValue(i) + (thisMk * (m_withinClassStdDevSi[i] + m_medianSo) * dPrimeik);
                 classCentroid.setShrunkenValue(i, newAttrValue);
@@ -255,13 +240,11 @@ public class ShrunkenCentroid extends AbstractClassifier {
                 // Finish equation 1
                 double dik = difFromGlobal / stdError;
 
-//                // Now calculate d'ik - equation 5
-//                double dPrime = getDPrime(dik);
                 // Save the value
                 m_tStatisticsDik[i][k] = dik;
 
-                if (dik > maxTStatistic)
-                    maxTStatistic = dik;
+                if (dik > m_maxTStatistic)
+                    m_maxTStatistic = dik;
             }
         }
     }
@@ -348,7 +331,6 @@ public class ShrunkenCentroid extends AbstractClassifier {
     }
 
     private void calculateCentroids(Instances trainingData) {
-//        m_centroidNumAttributes = trainingData.numAttributes() - 1; // ignore class value for calculating centroids
         // Init the global and class centroids
         m_globalCentroid = new Centroid(trainingData.numAttributes());
         m_classAttributeIndex = trainingData.classIndex();
