@@ -14,17 +14,23 @@ class Centroid implements Serializable  {
     // Instance to hold the values TODO should we use a double[] instead of Instance?
     private Instance m_inst;
 
+    // Instance to hold the values TODO should we use a double[] instead of Instance?
+    private Instance m_shrunkenInst;
+
     // Keep a list of instances for this class
     private List<Instance> m_instances;
 
     public Centroid(int numAttributes) {
         m_inst = new DenseInstance(numAttributes, new double[numAttributes]);
+        m_shrunkenInst = new DenseInstance(numAttributes, new double[numAttributes]);
         m_instances = new ArrayList<>();
     }
 
     public void setValue(int i, double v) {
         m_inst.setValue(i, v);
     }
+
+    public void setShrunkenValue(int i, double v) { m_shrunkenInst.setValue(i, v);}
 
     public double getValue(int i) {
         return m_inst.value(i);
@@ -52,6 +58,13 @@ class Centroid implements Serializable  {
 
     public double getDifferenceFromInstanceAttribute(Instance instance, int attributeI) {
         return instance.value(attributeI) - m_inst.value(attributeI);
+    }
+
+    public double getDifferenceFromInstanceAttribute(Instance instance, int attributeI, boolean useShrunken) {
+        if (useShrunken)
+            return instance.value(attributeI) - m_shrunkenInst.value(attributeI);
+        else
+            return getDifferenceFromInstanceAttribute(instance, attributeI);
     }
 
     public double getDistanceFromInstance(Instance instance) {
