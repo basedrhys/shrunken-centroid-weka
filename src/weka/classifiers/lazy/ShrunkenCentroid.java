@@ -57,13 +57,6 @@ import java.util.*;
  * <p/>
  <!-- technical-bibtex-end -->
  *
- <!-- options-start -->
- * Valid options are: <p/>
- *
- * <pre> -D
- *  Delta -- shrinkage parameter, how much to shrink the centroids towards the global centroid.</pre>
- *
- <!-- options-end -->
  *
  * @author Rhys Compton (rhys.compton@gmail.com)
  * @author Eibe Frank (eibe@cs.waikato.ac.nz)
@@ -72,22 +65,58 @@ import java.util.*;
 
 public class ShrunkenCentroid extends AbstractClassifier {
 
-    @OptionMetadata(
-            displayName = "Shrinkage",
-            description = "Shrinkage parameter",
-            commandLineParamName = "S",
-            commandLineParamSynopsis = "-S <double>",
-            displayOrder = 1)
+    /*
+        Getters and setters for main hyperparameters
+     */
+    // Main hyperparameter, controls how much shrinkage to perform on the centroids
+    protected double m_shrinkageThreshold = 0.2;
+
     public double getShrinkage() {
         return m_shrinkageThreshold;
     }
 
-    public void setShrinkage(int d) {
+    public void setShrinkage(double d) {
         m_shrinkageThreshold = d;
     }
 
-    // Main hyperparameter, controls how much shrinkage to perform on the centroids
-    private double m_shrinkageThreshold = -1;
+    public String shrinkageTipText() {
+        return "Controls how much shrinkage to perform on the centroids";
+    }
+
+    // The number of thresholds to evaluate during internal CV
+    // Does not affect the min and max threshold, just how many
+    // are evaluated in between
+    protected int m_numEvaluationThresholds = 30;
+
+    public int getNumEvaluationThresholds() {
+        return m_numEvaluationThresholds;
+    }
+
+    public void setNumEvaluationThresholds(int m_numEvaluationThresholds) {
+        this.m_numEvaluationThresholds = m_numEvaluationThresholds;
+    }
+
+    public String numEvaluationThresholdsTipText() { return "The number of thresholds to evaluate during internal CV. " +
+            "Does not affect the min and max threshold, just how many" +
+            " are evaluated in between"; }
+
+    // Set to false to create a standard Nearest Centroid Classifier -- no shrinkage
+    protected boolean m_applyShrinkage = true;
+
+    public boolean getApplyShrinkage() {
+        return m_applyShrinkage;
+    }
+
+    public void setApplyShrinkage(boolean applyShrinkage) {
+        this.m_applyShrinkage = applyShrinkage;
+    }
+
+    public String applyShrinkageTipText() { return "Set to false to create a standard Nearest Centroid Classifier -- no shrinkage"; }
+
+    /*
+        Private Variables
+     */
+    private boolean m_inCV = false;
 
     // The global centroid -- average of *all* instances in the training set
     private Centroid m_globalCentroid;
@@ -95,6 +124,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
     // Class level centroids -- average of all instances for each class, in order of class values
     private Centroid[] m_classCentroids;
 
+    // Index of the class attribute (so we don't include it in centroid location calculations
     private int m_classAttributeIndex;
 
     // Within-class standard deviation for all attributes (for all i)
@@ -110,11 +140,105 @@ public class ShrunkenCentroid extends AbstractClassifier {
     // 'dik' in the paper formulas
     private double[][] m_tStatisticsDik;
 
-    //
+    // Used to find maximum shrinkage threshold to evaluate
     private double m_maxTStatistic = -1;
 
-    // Set to false to create a standard Nearest Centroid Classifier -- no shrinkage
-    protected boolean doShrinkage = true;
+    private final String SUMMARY_STRING = "\nBest values found through CV:\n" +
+                                    "Threshold - %3f   |   Accuracy - %3f\n";
+
+    /**
+     * Parses a given list of options. <p/>
+     * <p>
+     * <!-- options-start -->
+     * Valid options are: <p/>
+     * <p>
+     * <pre> -S &lt;shrinkage threshold&gt;
+     *  Sets the threshold to shrink from - larger values will shrink more attributes to 0
+     *  (default 0.5) </pre>
+     * <p/>
+     * <p>
+     * <pre> -num-thresholds &lt;number of thresholds&gt;
+     *  The number of thresholds to evaluate during internal CV. Does not affect the
+     *  min and max threshold, just how many are evaluated in between
+     *  (default 30) </pre>
+     *  <p/>
+     * <p>
+     * <pre> -apply-shrinkage &lt;value&gt;
+     *  If false, don't shrink the centroids, just create a standard nearest centroid classifier
+     *  (default true)
+     * </pre>
+     * <p/>
+     * <!-- options-end -->
+     *
+     * @param options the list of options as an array of strings
+     * @throws Exception if an option is not supported
+     */
+    @Override
+    public void setOptions(String[] options) throws Exception {
+        String shrinkage = Utils.getOption("S", options);
+        // Set the attribute subset size if given
+        if (shrinkage.length() != 0) {
+            setShrinkage(Double.parseDouble(shrinkage));
+        } else {
+            setShrinkage(0.2);
+        }
+
+        String numThresholds = Utils.getOption("num-thresholds", options);
+        if (numThresholds.length() != 0) {
+            setNumEvaluationThresholds(Integer.parseInt(numThresholds));
+        } else {
+            setNumEvaluationThresholds(30);
+        }
+
+        String applyShrinkage = Utils.getOption("apply-shrinkage", options);
+        if (applyShrinkage.length() != 0) {
+            setApplyShrinkage(Boolean.parseBoolean(applyShrinkage));
+        } else {
+            setApplyShrinkage(true);
+        }
+
+        // Set all the other options
+        super.setOptions(options);
+    }
+
+    @Override
+    public String[] getOptions() {
+        String[] superOptions = super.getOptions();
+        String[] options = new String[superOptions.length + 6];
+        int current = 0;
+        options[current++] = "-S";
+        options[current++] = "" + getShrinkage();
+
+        options[current++] = "-num-thresholds";
+        options[current++] = "" + getNumEvaluationThresholds();
+
+        options[current++] = "-apply-shrinkage";
+        options[current++] = "" + getApplyShrinkage();
+        System.arraycopy(superOptions, 0, options, current, superOptions.length);
+        return options;
+    }
+
+    /**
+     * Returns an enumeration describing the available options.
+     *
+     * @return an enumeration of all the available options.
+     */
+    @Override
+    public Enumeration<Option> listOptions() {
+        Vector<Option> newVector = new Vector<>(3);
+        newVector.addElement(new Option("\tSets how much shrinkage to apply to the centroids",
+                "S", 1, "-S <shrinkage>"));
+
+        newVector.addElement(new Option("\tThe number of thresholds to evaluate during internal CV",
+                "num-thresholds", 1, "-num-thresholds <number of thresholds>"));
+
+        newVector.addElement(new Option("\tIf false, don't shrink the centroids, just create a standard " +
+                "nearest centroid classifier", "apply-shrinkage", 1,
+                "-apply-shrinkage <value>"));
+
+        newVector.addAll(Collections.list(super.listOptions()));
+        return newVector.elements();
+    }
 
     private void doDatasetCalculations(Instances trainingData) {
         trainingData = new Instances(trainingData);
@@ -415,7 +539,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
      */
     public String globalInfo() {
         return "This algorithm performs nearest-centroid classification, however as an enhancement," +
-                "shrinks the centroids toward the global centroid, controlled by the Delta parameter.";
+                "shrinks the centroids toward the global centroid, controlled by the threshold parameter.";
     }
 
     /**
