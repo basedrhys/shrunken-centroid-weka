@@ -25,8 +25,7 @@ import weka.classifiers.AbstractClassifier;
 import weka.classifiers.evaluation.Evaluation;
 import weka.core.*;
 
-import java.util.Arrays;
-import java.util.Random;
+import java.util.*;
 
 /**
  <!-- globalinfo-start -->
