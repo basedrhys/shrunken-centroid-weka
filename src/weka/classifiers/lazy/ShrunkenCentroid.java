@@ -260,13 +260,12 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
     private double[] calculateShrinkageThresholds() {
         float current = 0;
-        int totalCount = 30;
         float end = (float) m_maxTStatistic;
-        float step = end / (totalCount - 1);
+        float step = end / (getNumEvaluationThresholds() - 1); // -1 so the last threshold *is* the maximum t statistic
 
-        double[] ret = new double[totalCount];
+        double[] ret = new double[getNumEvaluationThresholds()];
 
-        for (int i = 0; i < totalCount; i++) {
+        for (int i = 0; i < getNumEvaluationThresholds(); i++) {
             ret[i] = current;
             current+=step;
         }
