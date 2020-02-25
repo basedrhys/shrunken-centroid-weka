@@ -273,26 +273,30 @@ public class ShrunkenCentroid extends AbstractClassifier {
     }
 
     public void buildClassifier(Instances trainingData) throws Exception {
-        double maxPercent = -1;
+        double bestPercent = -1;
         double bestThreshold = 0;
-        m_Debug = true;
         // This ensures that the buildClassifier() function isn't called recursively forever
         // When buildClassifier() is called during the crossValidationModel() below,
-        // m_shrinkageThreshold will not be -1, so the whole block will be skipped.
-        if (m_shrinkageThreshold == -1) {
+        if (!m_inCV) {
             // Do the non-threshold calculations on the dataset
             // i.e. calculate overall centroids, standard deviations...
             doDatasetCalculations(trainingData);
 
+            // We don't need to do anything more, we've already build the centroids so are ready for classification
+            if (!m_applyShrinkage) {
+                return;
+            }
+
             // Calculate all the different shrinkage thresholds we'll try
             double[] thresholds = calculateShrinkageThresholds();
+
+            m_inCV = true;
 
             Evaluation evaluation = new Evaluation(trainingData);
             for (double threshold : thresholds) {
 
                 // Using this current threshold, shrink the centroids
-                m_shrinkageThreshold = threshold;
-                shrinkCentroids();
+                shrinkCentroids(threshold);
 
                 // Perform 10 fold CV using the shrunken centroids
                 evaluation.crossValidateModel(this, trainingData, 10, new Random(1));
@@ -302,24 +306,24 @@ public class ShrunkenCentroid extends AbstractClassifier {
                 }
                 // If this is better than the previous best, set this as the new best
                 // threshold
-                if (pctCorrect > maxPercent) {
+                if (pctCorrect > bestPercent) {
                     bestThreshold = threshold;
-                    maxPercent = pctCorrect;
+                    bestPercent = pctCorrect;
                     if (m_Debug) {
                         System.out.println(String.format("Found better classifier with threshold %f, accuracy = %3f", threshold, pctCorrect));
                     }
                 }
             }
-            if (m_Debug) {
-                System.out.println("Using best threshold value of: " + bestThreshold);
-            }
-            // Finally use the best shrinkage we found during CV
-            m_shrinkageThreshold = bestThreshold;
-            shrinkCentroids();
+            m_inCV = false;
+
+            System.out.printf(SUMMARY_STRING, bestThreshold, bestPercent);
+
+            // Finally shrink back to the user specified threshold
+            shrinkCentroids(m_shrinkageThreshold);
         }
     }
 
-    private void shrinkCentroids() {
+    private void shrinkCentroids(double thresh) {
         // Using the values calculated, we finally shrink the centroids
         // equation 4 in the paper
         for (int k = 0; k < m_classCentroids.length; k++) {
@@ -331,7 +335,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
                 // Ignore the class attribute
                 if (i == m_classAttributeIndex)
                     continue;
-                double dPrimeik = getDPrime(m_tStatisticsDik[i][k], m_shrinkageThreshold);
+                double dPrimeik = getDPrime(m_tStatisticsDik[i][k], thresh);
                 //x(hat)i + mk(si + so)d'ik
                 double newAttrValue = m_globalCentroid.getValue(i) + (thisMk * (m_withinClassStdDevSi[i] + m_medianSo) * dPrimeik);
                 classCentroid.setShrunkenValue(i, newAttrValue);
@@ -485,7 +489,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
         // Max value as we want all calculated distances to be less
         double minDist = Double.MAX_VALUE;
         double minDistClass = 0;
-        if (doShrinkage) {
+        if (m_applyShrinkage) {
             // We need to scale the instances once we've shrunken the centroids
             // Here we use equation [6]
             // Find the centroid with the lowest distance
