@@ -11,10 +11,10 @@ import java.util.List;
 class Centroid implements Serializable  {
     private static final long serialVersionUID = 0;
 
-    // Instance to hold the values TODO should we use a double[] instead of Instance?
+    // Instance to hold the values
     private Instance m_inst;
 
-    // Instance to hold the values TODO should we use a double[] instead of Instance?
+    // Instance to hold the values of the shrunken version
     private Instance m_shrunkenInst;
 
     // Keep a list of instances for this class
@@ -36,12 +36,14 @@ class Centroid implements Serializable  {
         return m_inst.value(i);
     }
 
-    public void addInstance(Instance inst) { // TODO work around for class value not being the last val
+    public void addInstance(Instance inst) {
         // Add all attribute values from this instance to both the global centroid
         // and the appropriate class centroid
         for (int i = 0; i < m_inst.numAttributes(); i++) {
-            double newVal = m_inst.value(i) + inst.value(i);
-            m_inst.setValue(i, newVal);
+            if (i != inst.classIndex()) {
+                double newVal = m_inst.value(i) + inst.value(i);
+                m_inst.setValue(i, newVal);
+            }
         }
         m_instances.add(inst);
     }
@@ -70,8 +72,10 @@ class Centroid implements Serializable  {
     public double getDistanceFromInstance(Instance instance) {
         double dist = 0;
         for (int i = 0; i < m_inst.numAttributes(); i++) {
-            double d = instance.value(i) - m_inst.value(i);
-            dist += d * d;
+            if (i != instance.classIndex()){
+                double d = instance.value(i) - m_inst.value(i);
+                dist += d * d;
+            }
         }
         return Math.sqrt(dist);
     }
