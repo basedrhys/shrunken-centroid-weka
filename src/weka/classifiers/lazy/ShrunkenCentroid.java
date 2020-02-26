@@ -21,6 +21,7 @@
 
 package weka.classifiers.lazy;
 
+import weka.associations.ItemSet;
 import weka.classifiers.AbstractClassifier;
 import weka.classifiers.evaluation.Evaluation;
 import weka.core.*;
@@ -557,6 +558,38 @@ public class ShrunkenCentroid extends AbstractClassifier {
         }
     }
 
+    private double getCorrectedDistance(Instance testInstance, Centroid classCentroid) {
+        // We need to scale the instances once we've shrunken the centroids
+        // Here we use equation [6]
+        double distanceSum = 0;
+        // sum from i = 1 to p
+        for (int i = 0; i < m_globalCentroid.numAttributes(); i++) {
+            // Ignore the class attribute
+            if (i == m_classAttributeIndex)
+                continue;
+            double squaredDif = classCentroid.getDifferenceFromInstanceAttribute(testInstance, i, true);
+            // Actually square it
+            squaredDif *= squaredDif;
+            // bottom half of eq - (si + so)^2
+            double standardizeVal = m_withinClassStdDevSi[i] + m_medianSo;
+            standardizeVal *= standardizeVal;
+            // Add this value into the sum over all attributes
+            double thisSum = squaredDif / standardizeVal;
+            distanceSum += thisSum;
+        }
+        // Last part of equation -- 2 log pi k
+        // Proportion of instances in this class
+        double classPrior = classCentroid.getInstances().size() / (float) m_globalCentroid.getInstances().size();
+        return distanceSum - (2 * Math.log(classPrior));
+    }
+
+    private double[] getClassDistances(Instance testInstance) {
+        double[] distances = new double[m_classCentroids.length];
+        for (int k = 0; k < m_classCentroids.length; k++) {
+            distances[k] = getCorrectedDistance(testInstance, m_classCentroids[k]);
+        }
+        return distances;
+    }
 
     /**
      * @param testInstance Instance to classify
@@ -567,33 +600,13 @@ public class ShrunkenCentroid extends AbstractClassifier {
         double minDist = Double.MAX_VALUE;
         double minDistClass = 0;
         if (m_applyShrinkage) {
-            // We need to scale the instances once we've shrunken the centroids
-            // Here we use equation [6]
+            double[] classDistances = getClassDistances(testInstance);
             // Find the centroid with the lowest distance
-            for (int k = 0; k < m_classCentroids.length; k++) {
-                Centroid classCentroid = m_classCentroids[k];
-                double distanceSum = 0;
-                // sum from i = 1 to p
-                for (int i = 0; i < m_globalCentroid.numAttributes(); i++) {
-                    // Ignore the class attribute
-                    if (i == m_classAttributeIndex)
-                        continue;
-                    double squaredDif = classCentroid.getDifferenceFromInstanceAttribute(testInstance, i, true);
-                    // Actually square it
-                    squaredDif *= squaredDif;
-                    // bottom half of eq - (si + so)^2
-                    double standardizeVal = m_withinClassStdDevSi[i] + m_medianSo;
-                    standardizeVal *= standardizeVal;
-                    // Add this value into the sum over all attributes
-                    double thisSum = squaredDif / standardizeVal;
-                    distanceSum += thisSum;
-                }
-                // Last part of equation -- 2 log pi k
-                // Proportion of instances in this class
-                double classPrior = classCentroid.getInstances().size() / (float) m_globalCentroid.getInstances().size();
-                double distanceCorrected = distanceSum - (2 * Math.log(classPrior));
-                if (distanceCorrected < minDist) {
-                    minDist = distanceCorrected;
+            for (int k = 0; k < classDistances.length; k++) {
+                double distance = classDistances[k];
+
+                if (distance < minDist) {
+                    minDist = distance;
                     minDistClass = k;
                 }
             }
@@ -611,6 +624,32 @@ public class ShrunkenCentroid extends AbstractClassifier {
             }
         }
         return minDistClass;
+    }
+
+    private double softmaxDistance(double distance) {
+        return Math.exp(-0.5 * distance);
+    }
+
+    /**
+     * Equation 8
+     * @param testInstance Instance to test
+     * @return Class distribution
+     */
+    public double[] distributionForInstance(Instance testInstance) {
+        double[] distribution = new double[m_classCentroids.length];
+        double[] distances = getClassDistances(testInstance);
+        double distributionSum = 0;
+
+        // Add up all the distributions (bottom half of eq)
+        for (double distance : distances) {
+            distributionSum += softmaxDistance(distance);
+        }
+
+        for (int k = 0; k < distribution.length; k++) {
+            distribution[k] = softmaxDistance(distances[k]) / distributionSum;
+        }
+
+        return distribution;
     }
 
     /**

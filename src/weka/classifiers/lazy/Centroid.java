@@ -120,7 +120,7 @@ class Centroid implements Serializable  {
 
     /**
      * Average all attribute values.
-     * 
+     *
      * Should be called after all instances in this class have been added to this centroid,
      * to find the final centroid location
      */
