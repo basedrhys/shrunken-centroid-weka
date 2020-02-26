@@ -242,6 +242,11 @@ public class ShrunkenCentroid extends AbstractClassifier {
         return newVector.elements();
     }
 
+
+    /**
+     * Does the dataset-level statistic calculations (std dev, t statistics, etc.)
+     * @param trainingData Training dataset
+     */
     private void doDatasetCalculations(Instances trainingData) {
         trainingData = new Instances(trainingData);
         trainingData.deleteWithMissingClass();
@@ -260,6 +265,11 @@ public class ShrunkenCentroid extends AbstractClassifier {
         calculateAllTStatistics();
     }
 
+
+    /**
+     * LERPs numEvaluationThreshold times, between 0 and the maximum t-statistic found for the dataset.
+     * @return A list of shrinkage thresholds to try during internal CV
+     */
     private double[] calculateShrinkageThresholds() {
         float current = 0;
         float end = (float) m_maxTStatistic;
@@ -274,13 +284,23 @@ public class ShrunkenCentroid extends AbstractClassifier {
         return ret;
     }
 
+
+    /**
+     * All centroids seem to have the same number of non-zero attributes (in my limited testing),
+     * so we can just report the non-zero attributes for one of them.
+     * The results from this way matches their R implementation at least
+     * @return Number of non-zero attributes
+     */
     private int getNonZeroAttributes() {
-        // All centroids seem to have the same number of non-zero attributes (in my limited testing),
-        // so we can just report the non-zero attributes for one of them.
-        // This way matches their R implementation at least
         return m_classCentroids[0].getNonZeroShrunkenAttributes(m_globalCentroid);
     }
 
+
+    /**
+     * Main model building method
+     * @param trainingData Training Dataset
+     * @throws Exception
+     */
     public void buildClassifier(Instances trainingData) throws Exception {
         double bestPercent = -1;
         double bestThreshold = 0;
@@ -335,6 +355,10 @@ public class ShrunkenCentroid extends AbstractClassifier {
         }
     }
 
+    /**
+     * Shrinks the class centroids towards the global centroid, using the specified threshold
+     * @param thresh Shrinkage threshold to use
+     */
     private void shrinkCentroids(double thresh) {
         // Using the values calculated, we finally shrink the centroids
         // equation 4 in the paper
@@ -355,6 +379,10 @@ public class ShrunkenCentroid extends AbstractClassifier {
         }
     }
 
+    /**
+     * Equation 1
+     * Calculate the t-statistics for each attribute and class
+     */
     private void calculateAllTStatistics() {
         // Make a 2d array to store the values with i rows (i attributes) and k columns (k classes)
         m_tStatisticsDik = new double[m_globalCentroid.numAttributes()][m_classCentroids.length];
@@ -387,8 +415,14 @@ public class ShrunkenCentroid extends AbstractClassifier {
         }
     }
 
+
+    /**
+     * Equation 5
+     * @param dik d_{ik} - t statistic for this attribute and class
+     * @param shrinkageThresh How much to shrink by
+     * @return d'_{ik} - new t statistic
+     */
     private double getDPrime(double dik, double shrinkageThresh) {
-        // Equation 5 in the paper
 
         // Get the absolute difference between the value and delta
         double difference  = Math.abs(dik) - shrinkageThresh;
@@ -403,8 +437,12 @@ public class ShrunkenCentroid extends AbstractClassifier {
         return difference;
     }
 
+    /**
+     * Just after equation 2
+     * Calculate an mk for each class
+     * @param trainingData Training dataset
+     */
     private void calculateStandardizingParamsForAllK(Instances trainingData) {
-        // Calculate an mk for each class, just after equation 2
         m_allMK = new double[m_classCentroids.length];
         // TODO more meaningful name
         double oneOverAll = 1f / trainingData.numInstances();
@@ -422,8 +460,15 @@ public class ShrunkenCentroid extends AbstractClassifier {
         }
     }
 
+
+    /**
+     * Text before equation 3
+     * Calculates s_{o}, by simply using the median of the s_{i} values found
+     * @param values
+     */
     private void calculateMedian(double[] values) {
-        // When finding the median, ignore the class value - we only want to find the median for the attributes
+        // When finding the median, ignore the class attribute -
+        // we only want to find the median for the other attributes
         double[] valuesCopy = new double[values.length - 1];
         int copyIndex = 0;
         for (int i = 0; i < valuesCopy.length; i++) {
@@ -442,8 +487,12 @@ public class ShrunkenCentroid extends AbstractClassifier {
         }
     }
 
+    /**
+     * Equation 2
+     * Calculate within-class std dev
+     * @param trainingData Training dataset
+     */
     private void calculateStandardDeviations(Instances trainingData) {
-        // Equation 2 in the paper, calculate within-class std dev
         m_withinClassStdDevSi = new double[m_globalCentroid.numAttributes()];
         // 1 / n - K
         double stdValue = 1 / (float) (trainingData.numInstances() - trainingData.classAttribute().numValues());
@@ -475,6 +524,10 @@ public class ShrunkenCentroid extends AbstractClassifier {
         }
     }
 
+    /**
+     * Calculate both the global centroid and the class-level centroids
+     * @param trainingData Training dataset
+     */
     private void calculateCentroids(Instances trainingData) {
         // Init the global and class centroids
         m_classAttributeIndex = trainingData.classIndex();
@@ -504,6 +557,11 @@ public class ShrunkenCentroid extends AbstractClassifier {
         }
     }
 
+
+    /**
+     * @param testInstance Instance to classify
+     * @return Predicted class index
+     */
     public double classifyInstance(Instance testInstance) {
         // Max value as we want all calculated distances to be less
         double minDist = Double.MAX_VALUE;
@@ -555,6 +613,9 @@ public class ShrunkenCentroid extends AbstractClassifier {
         return minDistClass;
     }
 
+    /**
+     * @return Stats on the thresholds testing during internal CV
+     */
     @Override
     public String toString() {
         return m_modelString;
