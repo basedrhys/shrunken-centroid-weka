@@ -141,7 +141,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
     private double[][] m_tStatisticsDik;
 
     // Used to find maximum shrinkage threshold to evaluate
-    private double m_maxTStatistic = -1;
+    private double m_maxTStatistic = -Double.MAX_VALUE;
 
     private final String SUMMARY_STRING = "\nBest values found through CV:\n" +
                                     "Threshold - %3f   |   Accuracy - %3f\n";
@@ -419,8 +419,15 @@ public class ShrunkenCentroid extends AbstractClassifier {
     }
 
     private void calculateMedian(double[] values) {
-        // Copy it as we need to sort the values to find median
-        double[] valuesCopy = values.clone();
+        // When finding the median, ignore the class value - we only want to find the median for the attributes
+        double[] valuesCopy = new double[values.length - 1];
+        int copyIndex = 0;
+        for (int i = 0; i < valuesCopy.length; i++) {
+            if (i == m_classAttributeIndex)
+                continue;
+            valuesCopy[copyIndex] = values[i];
+            copyIndex++;
+        }
         Arrays.sort(valuesCopy);
 
         int middle = valuesCopy.length / 2;
