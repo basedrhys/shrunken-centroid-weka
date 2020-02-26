@@ -38,6 +38,11 @@ class Centroid implements Serializable  {
         return m_inst.value(i);
     }
 
+    /**
+     * Calculates how shrunken many attributes are non-zero
+     * @param globalCentroid The global centroid to compare against
+     * @return Number of attributes that are non-zero
+     */
     public int getNonZeroShrunkenAttributes(Centroid globalCentroid) {
         int count = 0;
         for (int i = 0; i < m_shrunkenInst.numAttributes(); i++) {
@@ -51,9 +56,11 @@ class Centroid implements Serializable  {
         return count;
     }
 
+    /**
+     * Add all attribute values from this instance to the centroid
+     * @param inst instance to add
+     */
     public void addInstance(Instance inst) {
-        // Add all attribute values from this instance to both the global centroid
-        // and the appropriate class centroid
         for (int i = 0; i < m_inst.numAttributes(); i++) {
             if (i != m_classIndex) {
                 double newVal = m_inst.value(i) + inst.value(i);
@@ -73,10 +80,21 @@ class Centroid implements Serializable  {
 
     public int numAttributes() { return m_inst.numAttributes(); }
 
+    /**
+     * @param instance Instance to compare against
+     * @param attributeI Attribute index we're comparing
+     * @return Difference between parameter instance and this centroid instance, for the given index
+     */
     public double getDifferenceFromInstanceAttribute(Instance instance, int attributeI) {
         return instance.value(attributeI) - m_inst.value(attributeI);
     }
 
+    /**
+     * @param instance Instance to compare against
+     * @param attributeI Attribute index we're comparing
+     * @param useShrunken Use the shrunken centroid to compare
+     * @return
+     */
     public double getDifferenceFromInstanceAttribute(Instance instance, int attributeI, boolean useShrunken) {
         if (useShrunken)
             return instance.value(attributeI) - m_shrunkenInst.value(attributeI);
@@ -84,6 +102,11 @@ class Centroid implements Serializable  {
             return getDifferenceFromInstanceAttribute(instance, attributeI);
     }
 
+    /**
+     * Calculates euclidean distance between this centroid and the given instance
+     * @param instance Instance to measure against
+     * @return
+     */
     public double getDistanceFromInstance(Instance instance) {
         double dist = 0;
         for (int i = 0; i < m_inst.numAttributes(); i++) {
@@ -95,8 +118,13 @@ class Centroid implements Serializable  {
         return Math.sqrt(dist);
     }
 
+    /**
+     * Average all attribute values.
+     * 
+     * Should be called after all instances in this class have been added to this centroid,
+     * to find the final centroid location
+     */
     public void averageValues() {
-        // Average all attribute values
         for (int i = 0; i < m_inst.numAttributes(); i++) {
             double newVal = m_inst.value(i) / m_instances.size();
             m_inst.setValue(i, newVal);
