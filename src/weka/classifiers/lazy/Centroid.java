@@ -1,6 +1,5 @@
 package weka.classifiers.lazy;
 
-import weka.core.Attribute;
 import weka.core.DenseInstance;
 import weka.core.Instance;
 
@@ -20,10 +19,13 @@ class Centroid implements Serializable  {
     // Keep a list of instances for this class
     private List<Instance> m_instances;
 
-    public Centroid(int numAttributes) {
+    private int m_classIndex;
+
+    public Centroid(int numAttributes, int classAttribute) {
         m_inst = new DenseInstance(numAttributes, new double[numAttributes]);
         m_shrunkenInst = new DenseInstance(numAttributes, new double[numAttributes]);
         m_instances = new ArrayList<>();
+        m_classIndex = classAttribute;
     }
 
     public void setValue(int i, double v) {
@@ -40,7 +42,7 @@ class Centroid implements Serializable  {
         // Add all attribute values from this instance to both the global centroid
         // and the appropriate class centroid
         for (int i = 0; i < m_inst.numAttributes(); i++) {
-            if (i != inst.classIndex()) {
+            if (i != m_classIndex) {
                 double newVal = m_inst.value(i) + inst.value(i);
                 m_inst.setValue(i, newVal);
             }
@@ -72,7 +74,7 @@ class Centroid implements Serializable  {
     public double getDistanceFromInstance(Instance instance) {
         double dist = 0;
         for (int i = 0; i < m_inst.numAttributes(); i++) {
-            if (i != instance.classIndex()){
+            if (i != m_classIndex){
                 double d = instance.value(i) - m_inst.value(i);
                 dist += d * d;
             }
