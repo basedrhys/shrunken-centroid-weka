@@ -38,11 +38,11 @@ class Centroid implements Serializable  {
         return m_inst.value(i);
     }
 
-    public int getNonZeroShrunkenAttributes() {
+    public int getNonZeroShrunkenAttributes(Centroid globalCentroid) {
         int count = 0;
         for (int i = 0; i < m_shrunkenInst.numAttributes(); i++) {
             if (i != m_classIndex) {
-                double val = m_shrunkenInst.value(i);
+                double val = Math.abs(m_shrunkenInst.value(i) - globalCentroid.getValue(i));
                 if (val > 0) {
                     count++;
                 }

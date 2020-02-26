@@ -275,11 +275,10 @@ public class ShrunkenCentroid extends AbstractClassifier {
     }
 
     private int getNonZeroAttributes() {
-        int count = 0;
-        for (Centroid c : m_classCentroids) {
-            count += c.getNonZeroShrunkenAttributes();
-        }
-        return count;
+        // All centroids seem to have the same number of non-zero attributes (in my limited testing),
+        // so we can just report the non-zero attributes for one of them.
+        // This way matches their R implementation at least
+        return m_classCentroids[0].getNonZeroShrunkenAttributes(m_globalCentroid);
     }
 
     public void buildClassifier(Instances trainingData) throws Exception {
