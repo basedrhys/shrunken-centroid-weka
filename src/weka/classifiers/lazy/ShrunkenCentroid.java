@@ -272,6 +272,14 @@ public class ShrunkenCentroid extends AbstractClassifier {
         return ret;
     }
 
+    private int getNonZeroAttributes() {
+        int count = 0;
+        for (Centroid c : m_classCentroids) {
+            count += c.getNonZeroShrunkenAttributes();
+        }
+        return count;
+    }
+
     public void buildClassifier(Instances trainingData) throws Exception {
         double bestPercent = -1;
         double bestThreshold = 0;
@@ -301,7 +309,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
                 // Perform 10 fold CV using the shrunken centroids
                 evaluation.crossValidateModel(this, trainingData, 10, new Random(1));
                 double pctCorrect = evaluation.pctCorrect();
-                if (m_Debug) {
+                int nonZero = getNonZeroAttributes();
                     System.out.printf("%3f --- %3f\n", threshold, evaluation.pctCorrect());
                 }
                 // If this is better than the previous best, set this as the new best

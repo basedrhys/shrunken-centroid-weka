@@ -38,6 +38,19 @@ class Centroid implements Serializable  {
         return m_inst.value(i);
     }
 
+    public int getNonZeroShrunkenAttributes() {
+        int count = 0;
+        for (int i = 0; i < m_shrunkenInst.numAttributes(); i++) {
+            if (i != m_classIndex) {
+                double val = m_shrunkenInst.value(i);
+                if (val > 0) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
     public void addInstance(Instance inst) {
         // Add all attribute values from this instance to both the global centroid
         // and the appropriate class centroid
