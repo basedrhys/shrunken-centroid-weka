@@ -144,7 +144,9 @@ public class ShrunkenCentroid extends AbstractClassifier {
     private double m_maxTStatistic = -Double.MAX_VALUE;
 
     private final String SUMMARY_STRING = "\nBest values found through CV:\n" +
-                                    "Threshold - %3f   |   Accuracy - %3f\n";
+                                    "Threshold - %.3f   |   Accuracy - %.3f\n";
+
+    private String m_modelString;
 
     /**
      * Parses a given list of options. <p/>
@@ -300,8 +302,15 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
             m_inCV = true;
 
-            Evaluation evaluation = new Evaluation(trainingData);
-            for (double threshold : thresholds) {
+            // String builder for outputting the threshold CV results
+            StringBuilder sb = new StringBuilder();
+            String headerString = "\tThreshold\tNon-zero\tErrors\n";
+            String rowString = "%d\t%.3f\t\t%d\t\t\t%d\n";
+            sb.append(headerString);
+
+            for (int thresholdI = 0; thresholdI < thresholds.length; thresholdI++) {
+                Evaluation evaluation = new Evaluation(trainingData);
+                double threshold = thresholds[thresholdI];
 
                 // Using this current threshold, shrink the centroids
                 shrinkCentroids(threshold);
@@ -310,21 +319,17 @@ public class ShrunkenCentroid extends AbstractClassifier {
                 evaluation.crossValidateModel(this, trainingData, 10, new Random(1));
                 double pctCorrect = evaluation.pctCorrect();
                 int nonZero = getNonZeroAttributes();
-                    System.out.printf("%3f --- %3f\n", threshold, evaluation.pctCorrect());
-                }
-                // If this is better than the previous best, set this as the new best
-                // threshold
+                sb.append(String.format(rowString, thresholdI, threshold, nonZero, (int) evaluation.incorrect()));
+
+                // If this is better than the previous best, set this as the new best threshold
                 if (pctCorrect > bestPercent) {
                     bestThreshold = threshold;
                     bestPercent = pctCorrect;
-                    if (m_Debug) {
-                        System.out.println(String.format("Found better classifier with threshold %f, accuracy = %3f", threshold, pctCorrect));
-                    }
                 }
             }
             m_inCV = false;
 
-            System.out.printf(SUMMARY_STRING, bestThreshold, bestPercent);
+            m_modelString = sb.toString();
 
             // Finally shrink back to the user specified threshold
             shrinkCentroids(m_shrinkageThreshold);
@@ -356,7 +361,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
         m_tStatisticsDik = new double[m_globalCentroid.numAttributes()][m_classCentroids.length];
 
         // Now iterate over all attributes and calculate the t statistic for each class
-        // (equation 1 in the paper, for calculating dik, and equation 5 for d'ik)
+        // (equation 1 in the paper, for calculating d_{ik})
         for (int k = 0; k < m_classCentroids.length; k++) {
 
             // Get this class centroid and class Mk
@@ -442,7 +447,7 @@ public class ShrunkenCentroid extends AbstractClassifier {
         // Equation 2 in the paper, calculate within-class std dev
         m_withinClassStdDevSi = new double[m_globalCentroid.numAttributes()];
         // 1 / n - K
-        double stdValue = 1 / (float) (trainingData.numInstances() - m_classCentroids.length);
+        double stdValue = 1 / (float) (trainingData.numInstances() - trainingData.classAttribute().numValues());
 
         // We want to calculate Si for all i
         for (int i = 0; i < m_globalCentroid.numAttributes(); i++) {
@@ -473,11 +478,11 @@ public class ShrunkenCentroid extends AbstractClassifier {
 
     private void calculateCentroids(Instances trainingData) {
         // Init the global and class centroids
-        m_globalCentroid = new Centroid(trainingData.numAttributes());
         m_classAttributeIndex = trainingData.classIndex();
+        m_globalCentroid = new Centroid(trainingData.numAttributes(), m_classAttributeIndex);
         m_classCentroids = new Centroid[trainingData.classAttribute().numValues()];
         for (int i = 0; i < m_classCentroids.length; i++) {
-            m_classCentroids[i] = new Centroid(trainingData.numAttributes());
+            m_classCentroids[i] = new Centroid(trainingData.numAttributes(), m_classAttributeIndex);
         }
 
         // For each instance, add them into the global and class centroid
@@ -549,6 +554,11 @@ public class ShrunkenCentroid extends AbstractClassifier {
             }
         }
         return minDistClass;
+    }
+
+    @Override
+    public String toString() {
+        return m_modelString;
     }
 
     /**
