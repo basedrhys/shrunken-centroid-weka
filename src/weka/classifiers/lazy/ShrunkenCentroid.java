@@ -21,8 +21,9 @@
 
 package weka.classifiers.lazy;
 
-import weka.associations.ItemSet;
 import weka.classifiers.AbstractClassifier;
+import weka.classifiers.Classifier;
+import weka.classifiers.RandomizableClassifier;
 import weka.classifiers.evaluation.Evaluation;
 import weka.core.*;
 
@@ -39,9 +40,23 @@ import java.util.*;
  * Robert Tibshirani, Trevor Hastie, Balasubramanian Narasimhan, Gilbert Chu
  * Proceedings of the National Academy of Sciences May 2002, 99 (10) 6567-6572; DOI: 10.1073/pnas.082099299
  * <p/>
- <!-- globalinfo-end -->
+ * <!-- globalinfo-end -->
  *
- <!-- technical-bibtex-start -->
+ * <!-- options-start -->
+ * Valid options are: <p/>
+ * <p>
+ * <pre> -S &lt;shrinkage threshold&gt;
+ *  Shrinkage threshold to use if no internal cross-validation is performed.
+ *  (default 0.5) </pre>
+ * <p/>
+ * <p>
+ * <pre> -num-thresholds &lt;number of thresholds&gt;
+ *  Number of thresholds (fixed threshold will be used if this value is smaller than 2)
+ *  (default 30) </pre>
+ *  <p/>
+ * <!-- options-end -->
+ *
+ * <!-- technical-bibtex-start -->
  * BibTeX:
  * <pre>
  * &#64;article{tibshirani2002diagnosis,
@@ -59,605 +74,288 @@ import java.util.*;
  <!-- technical-bibtex-end -->
  *
  *
- * @author Rhys Compton (rhys.compton@gmail.com)
  * @author Eibe Frank (eibe@cs.waikato.ac.nz)
+ * @author Rhys Compton (rhys.compton@gmail.com)
  * @version $Revision$
  */
 
-public class ShrunkenCentroid extends AbstractClassifier {
+public class ShrunkenCentroid extends RandomizableClassifier {
 
-    /*
-        Getters and setters for main hyperparameters
-     */
-    // Main hyperparameter, controls how much shrinkage to perform on the centroids
-    protected double m_shrinkageThreshold = 0.2;
+    // We want this to make the classifier uniquely identifiable
+    static final long serialVersionUID = 6254290359623814525L;
 
+    /* Getters and setters for main hyperparameters */
+    protected double m_shrinkageThreshold = 0.5;
+    @OptionMetadata(
+            displayName = "Fixed shrinkage threshold",
+            description = "Shrinkage threshold to use if no internal cross-validation is performed.",
+            displayOrder = 1,
+            commandLineParamName = "shrinkage-threshold",
+            commandLineParamSynopsis = "-shrinkage-threshold")
     public double getShrinkage() {
         return m_shrinkageThreshold;
     }
-
     public void setShrinkage(double d) {
         m_shrinkageThreshold = d;
     }
 
-    public String shrinkageTipText() {
-        return "Controls how much shrinkage to perform on the centroids";
-    }
-
-    // The number of thresholds to evaluate during internal CV
-    // Does not affect the min and max threshold, just how many
-    // are evaluated in between
     protected int m_numEvaluationThresholds = 30;
-
+    @OptionMetadata(
+            displayName = "Number of thresholds (fixed threshold will be used if this value is smaller than 2)",
+            description = "The number of thresholds to evaluate during internal CV.",
+            displayOrder = 2,
+            commandLineParamName = "num-thresholds",
+            commandLineParamSynopsis = "-num-thresholds")
     public int getNumEvaluationThresholds() {
         return m_numEvaluationThresholds;
     }
-
     public void setNumEvaluationThresholds(int m_numEvaluationThresholds) {
         this.m_numEvaluationThresholds = m_numEvaluationThresholds;
     }
 
-    public String numEvaluationThresholdsTipText() { return "The number of thresholds to evaluate during internal CV. " +
-            "Does not affect the min and max threshold, just how many" +
-            " are evaluated in between"; }
-
-    // Set to false to create a standard Nearest Centroid Classifier -- no shrinkage
-    protected boolean m_applyShrinkage = true;
-
-    public boolean getApplyShrinkage() {
-        return m_applyShrinkage;
+    // The number of folds for internal cross-validation
+    protected int m_numFolds = 10;
+    @OptionMetadata(
+            displayName = "k for internal k-fold CV",
+            description = "The number of folds for internal cross-validation.",
+            displayOrder = 3,
+            commandLineParamName = "num-folds",
+            commandLineParamSynopsis = "-num-folds")
+    public int getNumFolds() {
+        return m_numFolds;
+    }
+    public void setNumFolds(int m_numFolds) {
+        this.m_numFolds = m_numFolds;
     }
 
-    public void setApplyShrinkage(boolean applyShrinkage) {
-        this.m_applyShrinkage = applyShrinkage;
-    }
+    // The per-class centroids
+    protected double[][] m_centroids;
 
-    public String applyShrinkageTipText() { return "Set to false to create a standard Nearest Centroid Classifier -- no shrinkage"; }
+    // The global centroid
+    protected double[] m_globalCentroid;
 
-    /*
-        Private Variables
-     */
-    private boolean m_inCV = false;
+    // The threshold obtained from training;
+    protected double m_bestThreshold;
 
-    // The global centroid -- average of *all* instances in the training set
-    private Centroid m_globalCentroid;
+    // The pooled within class standard deviations
+    protected double[] m_standardDeviations;
 
-    // Class level centroids -- average of all instances for each class, in order of class values
-    private Centroid[] m_classCentroids;
+    // Fudge factor
+    protected double m_s_0;
 
-    // Index of the class attribute (so we don't include it in centroid location calculations
-    private int m_classAttributeIndex;
+    // Total number of training instances
+    protected double m_numInstances;
 
-    // Within-class standard deviation for all attributes (for all i)
-    private double[] m_withinClassStdDevSi;
+    // Number of instances in each class
+    protected double[] m_numInstancesInClass;
 
-    //
-    private double[] m_allMK;
+    // Header of training instances for output
+    protected Instances m_header;
 
-    // Median of all the within-class standard deviations, 'So' in the paper formulas
-    private double m_medianSo;
-
-    // Collection of t statistics for attribute i, comparing class k to the overall centroid,
-    // 'dik' in the paper formulas
-    private double[][] m_tStatisticsDik;
-
-    // Used to find maximum shrinkage threshold to evaluate
-    private double m_maxTStatistic = -Double.MAX_VALUE;
-
-    private final String SUMMARY_STRING = "\nBest values found through CV:\n" +
-                                    "Threshold - %.3f   |   Accuracy - %.3f\n";
-
-    private String m_modelString;
+    private final String SUMMARY_STRING = "\nBest values found through CV:\nThreshold - %3f   |   Accuracy - %3f\n";
 
     /**
-     * Parses a given list of options. <p/>
-     * <p>
-     * <!-- options-start -->
-     * Valid options are: <p/>
-     * <p>
-     * <pre> -S &lt;shrinkage threshold&gt;
-     *  Sets the threshold to shrink from - larger values will shrink more attributes to 0
-     *  (default 0.5) </pre>
-     * <p/>
-     * <p>
-     * <pre> -num-thresholds &lt;number of thresholds&gt;
-     *  The number of thresholds to evaluate during internal CV. Does not affect the
-     *  min and max threshold, just how many are evaluated in between
-     *  (default 30) </pre>
-     *  <p/>
-     * <p>
-     * <pre> -apply-shrinkage &lt;value&gt;
-     *  If false, don't shrink the centroids, just create a standard nearest centroid classifier
-     *  (default true)
-     * </pre>
-     * <p/>
-     * <!-- options-end -->
-     *
-     * @param options the list of options as an array of strings
-     * @throws Exception if an option is not supported
+     * Method used for building the classifier.
+     * @param trainingData the data used for training
+     * @throws Exception if construction fails
      */
-    @Override
-    public void setOptions(String[] options) throws Exception {
-        String shrinkage = Utils.getOption("S", options);
-        // Set the attribute subset size if given
-        if (shrinkage.length() != 0) {
-            setShrinkage(Double.parseDouble(shrinkage));
-        } else {
-            setShrinkage(0.2);
-        }
+    public void buildClassifier(Instances trainingData) throws Exception {
 
-        String numThresholds = Utils.getOption("num-thresholds", options);
-        if (numThresholds.length() != 0) {
-            setNumEvaluationThresholds(Integer.parseInt(numThresholds));
-        } else {
-            setNumEvaluationThresholds(30);
-        }
+        // Can classifier handle the data?
+        getCapabilities().testWithFail(trainingData);
 
-        String applyShrinkage = Utils.getOption("apply-shrinkage", options);
-        if (applyShrinkage.length() != 0) {
-            setApplyShrinkage(Boolean.parseBoolean(applyShrinkage));
-        } else {
-            setApplyShrinkage(true);
-        }
-
-        // Set all the other options
-        super.setOptions(options);
-    }
-
-    @Override
-    public String[] getOptions() {
-        String[] superOptions = super.getOptions();
-        String[] options = new String[superOptions.length + 6];
-        int current = 0;
-        options[current++] = "-S";
-        options[current++] = "" + getShrinkage();
-
-        options[current++] = "-num-thresholds";
-        options[current++] = "" + getNumEvaluationThresholds();
-
-        options[current++] = "-apply-shrinkage";
-        options[current++] = "" + getApplyShrinkage();
-        System.arraycopy(superOptions, 0, options, current, superOptions.length);
-        return options;
-    }
-
-    /**
-     * Returns an enumeration describing the available options.
-     *
-     * @return an enumeration of all the available options.
-     */
-    @Override
-    public Enumeration<Option> listOptions() {
-        Vector<Option> newVector = new Vector<>(3);
-        newVector.addElement(new Option("\tSets how much shrinkage to apply to the centroids",
-                "S", 1, "-S <shrinkage>"));
-
-        newVector.addElement(new Option("\tThe number of thresholds to evaluate during internal CV",
-                "num-thresholds", 1, "-num-thresholds <number of thresholds>"));
-
-        newVector.addElement(new Option("\tIf false, don't shrink the centroids, just create a standard " +
-                "nearest centroid classifier", "apply-shrinkage", 1,
-                "-apply-shrinkage <value>"));
-
-        newVector.addAll(Collections.list(super.listOptions()));
-        return newVector.elements();
-    }
-
-
-    /**
-     * Does the dataset-level statistic calculations (std dev, t statistics, etc.)
-     * @param trainingData Training dataset
-     */
-    private void doDatasetCalculations(Instances trainingData) {
+        // Keep only data with known class values
         trainingData = new Instances(trainingData);
         trainingData.deleteWithMissingClass();
 
-        // Create the global and class centroids
-        calculateCentroids(trainingData);
-
-        // Calculate Si for each i (for each attribute)
-        calculateStandardDeviations(trainingData);
-        // Calculate So (simply use the median of the Si values
-        calculateMedian(m_withinClassStdDevSi);
-        // Calculate Mk for all classes
-        calculateStandardizingParamsForAllK(trainingData);
-
-        // Calculate d'ik for all i and k (all attributes and class centroids)
-        calculateAllTStatistics();
-    }
-
-
-    /**
-     * LERPs numEvaluationThreshold times, between 0 and the maximum t-statistic found for the dataset.
-     * @return A list of shrinkage thresholds to try during internal CV
-     */
-    private double[] calculateShrinkageThresholds() {
-        float current = 0;
-        float end = (float) m_maxTStatistic;
-        float step = end / (getNumEvaluationThresholds() - 1); // -1 so the last threshold *is* the maximum t statistic
-
-        double[] ret = new double[getNumEvaluationThresholds()];
-
-        for (int i = 0; i < getNumEvaluationThresholds(); i++) {
-            ret[i] = current;
-            current+=step;
+        // Calculate the various statistics required
+        m_centroids = new double[trainingData.numClasses()][trainingData.numAttributes()];
+        m_numInstancesInClass = new double[trainingData.numClasses()];
+        m_numInstances = 0;
+        m_globalCentroid = new double[trainingData.numAttributes()];
+        for (Instance instance : trainingData) {
+            int classVal = (int) instance.classValue();
+            m_numInstancesInClass[classVal]++;
+            for (int i = 0; i < instance.numAttributes(); i++) {
+                m_centroids[classVal][i] += instance.value(i);
+            }
         }
-        return ret;
-    }
+        for (int j = 0; j < trainingData.numClasses(); j++) {
+            for (int i = 0; i < trainingData.numAttributes(); i++) {
+                m_globalCentroid[i] += m_centroids[j][i];
+            }
+            m_numInstances += m_numInstancesInClass[j];
+        }
+        for (int j = 0; j < trainingData.numClasses(); j++) {
+            for (int i = 0; i < trainingData.numAttributes(); i++) {
+                m_centroids[j][i] /= m_numInstancesInClass[j];
+            }
+        }
+        for (int i = 0; i < trainingData.numAttributes(); i++) {
+            m_globalCentroid[i] /= m_numInstances;
+        }
+        m_standardDeviations = new double[trainingData.numAttributes()];
+        for (Instance instance : trainingData) {
+            int classVal = (int) instance.classValue();
+            for (int i = 0; i < instance.numAttributes(); i++) {
+                double diff = m_centroids[classVal][i] - instance.value(i);
+                m_standardDeviations[i] += diff * diff;
+            }
+        }
+        for (int i = 0; i < trainingData.numAttributes(); i++) {
+            m_standardDeviations[i] /= (m_numInstances - trainingData.numClasses());
+            m_standardDeviations[i] = Math.sqrt(m_standardDeviations[i]);
+        }
 
+        // Make sure class attribute is treated correctly in subsequent code
+        m_standardDeviations[trainingData.classIndex()] = 0;
+        for (int j = 0; j < trainingData.numClasses(); j++) {
+            m_centroids[j][trainingData.classIndex()] = 0;
+        }
+        m_globalCentroid[trainingData.classIndex()] = 0;
+        m_s_0 = Utils.kthSmallestValue(m_standardDeviations, 1 + trainingData.numAttributes() / 2);
+        if ((trainingData.numAttributes() - 1) % 2 == 0) { // Even number of predictor attributes?
+            m_s_0 = (m_s_0 + Utils.kthSmallestValue(m_standardDeviations,
+                    2 + trainingData.numAttributes() / 2)) / 2.0;
+        }
 
-    /**
-     * All centroids seem to have the same number of non-zero attributes (in my limited testing),
-     * so we can just report the non-zero attributes for one of them.
-     * The results from this way matches their R implementation at least
-     * @return Number of non-zero attributes
-     */
-    private int getNonZeroAttributes() {
-        return m_classCentroids[0].getNonZeroShrunkenAttributes(m_globalCentroid);
-    }
+        // Perform internal cross-validation to determine best shrinkage threshold
+        m_bestThreshold = 0;
+        if (getNumEvaluationThresholds() > 1) {
 
-
-    /**
-     * Main model building method
-     * @param trainingData Training Dataset
-     * @throws Exception
-     */
-    public void buildClassifier(Instances trainingData) throws Exception {
-        double bestPercent = -1;
-        double bestThreshold = 0;
-        // This ensures that the buildClassifier() function isn't called recursively forever
-        // When buildClassifier() is called during the crossValidationModel() below,
-        if (!m_inCV) {
-            // Do the non-threshold calculations on the dataset
-            // i.e. calculate overall centroids, standard deviations...
-            doDatasetCalculations(trainingData);
-
-            // We don't need to do anything more, we've already build the centroids so are ready for classification
-            if (!m_applyShrinkage) {
-                return;
+            // Set up template classifier, evaluation objects, and data for stratified cross-validation
+            ShrunkenCentroid sC = new ShrunkenCentroid();
+            sC.setNumEvaluationThresholds(-1);
+            Evaluation[] scores = new Evaluation[getNumEvaluationThresholds()];
+            for (int j = 0; j < getNumEvaluationThresholds(); j++) {
+                scores[j] = new Evaluation(trainingData);
             }
 
-            // Calculate all the different shrinkage thresholds we'll try
-            double[] thresholds = calculateShrinkageThresholds();
-
-            m_inCV = true;
-
-            // String builder for outputting the threshold CV results
-            StringBuilder sb = new StringBuilder();
-            String headerString = "\tThreshold\tNon-zero\tErrors\n";
-            String rowString = "%d\t%.3f\t\t%d\t\t\t%d\n";
-            sb.append(headerString);
-
-            for (int thresholdI = 0; thresholdI < thresholds.length; thresholdI++) {
-                Evaluation evaluation = new Evaluation(trainingData);
-                double threshold = thresholds[thresholdI];
-
-                // Using this current threshold, shrink the centroids
-                shrinkCentroids(threshold);
-
-                // Perform 10 fold CV using the shrunken centroids
-                evaluation.crossValidateModel(this, trainingData, 10, new Random(1));
-                double pctCorrect = evaluation.pctCorrect();
-                int nonZero = getNonZeroAttributes();
-                sb.append(String.format(rowString, thresholdI, threshold, nonZero, (int) evaluation.incorrect()));
-
-                // If this is better than the previous best, set this as the new best threshold
-                if (pctCorrect > bestPercent) {
-                    bestThreshold = threshold;
-                    bestPercent = pctCorrect;
+            // Figure out the thresholds to consider
+            double maxThreshold = -1;
+            for (int j = 0; j < trainingData.numClasses(); j++) {
+                double m_j = Math.sqrt((1.0/m_numInstancesInClass[j]) - (1.0/m_numInstances)); // Bug in paper?
+                for (int i = 0; i < trainingData.numAttributes(); i++) {
+                    double d_ij = m_centroids[j][i] - m_globalCentroid[i];
+                    double denom = m_j * (m_standardDeviations[i] + m_s_0);
+                    maxThreshold = Math.max(Math.abs(d_ij / denom), maxThreshold);
                 }
             }
-            m_inCV = false;
+            double inc = maxThreshold / (getNumEvaluationThresholds() - 1);
 
-            m_modelString = sb.toString();
-
-            // Finally shrink back to the user specified threshold
-            shrinkCentroids(m_shrinkageThreshold);
-        }
-    }
-
-    /**
-     * Shrinks the class centroids towards the global centroid, using the specified threshold
-     * @param thresh Shrinkage threshold to use
-     */
-    private void shrinkCentroids(double thresh) {
-        // Using the values calculated, we finally shrink the centroids
-        // equation 4 in the paper
-        for (int k = 0; k < m_classCentroids.length; k++) {
-            // Get this class centroid and class Mk
-            Centroid classCentroid = m_classCentroids[k];
-            double thisMk = m_allMK[k];
-
-            for (int i = 0; i < m_globalCentroid.numAttributes(); i++) {
-                // Ignore the class attribute
-                if (i == m_classAttributeIndex)
-                    continue;
-                double dPrimeik = getDPrime(m_tStatisticsDik[i][k], thresh);
-                //x(hat)i + mk(si + so)d'ik
-                double newAttrValue = m_globalCentroid.getValue(i) + (thisMk * (m_withinClassStdDevSi[i] + m_medianSo) * dPrimeik);
-                classCentroid.setShrunkenValue(i, newAttrValue);
+            // Run k-fold CV for all thresholds
+            Instances data = new Instances(trainingData);
+            Random random = new Random(getSeed());
+            data.randomize(random);
+            data.stratify(getNumFolds());
+            for (int j = 0; j < getNumFolds(); j++) {
+                Instances train = data.trainCV(getNumFolds(), j, random);
+                Instances test = data.testCV(getNumFolds(), j);
+                double threshold = 0;
+                Classifier copiedClassifier = AbstractClassifier.makeCopy(sC);
+                copiedClassifier.buildClassifier(train);
+                for (int i = 0; i < getNumEvaluationThresholds(); i++) {
+                    ((ShrunkenCentroid) copiedClassifier).m_bestThreshold = threshold;
+                    scores[i].setPriors(train);
+                    scores[i].evaluateModel(copiedClassifier, test);
+                    threshold += inc;
+                }
             }
-        }
-    }
 
-    /**
-     * Equation 1
-     * Calculate the t-statistics for each attribute and class
-     */
-    private void calculateAllTStatistics() {
-        // Make a 2d array to store the values with i rows (i attributes) and k columns (k classes)
-        m_tStatisticsDik = new double[m_globalCentroid.numAttributes()][m_classCentroids.length];
-
-        // Now iterate over all attributes and calculate the t statistic for each class
-        // (equation 1 in the paper, for calculating d_{ik})
-        for (int k = 0; k < m_classCentroids.length; k++) {
-
-            // Get this class centroid and class Mk
-            Centroid classCentroid = m_classCentroids[k];
-            double thisMk = m_allMK[k];
-
-            for (int i = 0; i < m_globalCentroid.numAttributes(); i++) {
-                // Ignore the class attribute
-                if (i == m_classAttributeIndex)
-                    continue;
-                // Top half of equation 1
-                double difFromGlobal = m_globalCentroid.getDifferenceFromInstanceAttribute(classCentroid.getInstance(), i);
-                // Bottom half of equation 1
-                double stdError = thisMk * (m_withinClassStdDevSi[i] + m_medianSo);
-                // Finish equation 1
-                double dik = difFromGlobal / stdError;
-
-                // Save the value
-                m_tStatisticsDik[i][k] = dik;
-
-                if (dik > m_maxTStatistic)
-                    m_maxTStatistic = dik;
-            }
-        }
-    }
-
-
-    /**
-     * Equation 5
-     * @param dik d_{ik} - t statistic for this attribute and class
-     * @param shrinkageThresh How much to shrink by
-     * @return d'_{ik} - new t statistic
-     */
-    private double getDPrime(double dik, double shrinkageThresh) {
-
-        // Get the absolute difference between the value and delta
-        double difference  = Math.abs(dik) - shrinkageThresh;
-        // Only keep the positive part
-        if (difference < 0) {
-            difference = 0;
-        }
-        // Add the sign back in
-        int sign = dik < 0 ? -1 : 1;
-        difference *= sign;
-        // Equation 5 finished
-        return difference;
-    }
-
-    /**
-     * Just after equation 2
-     * Calculate an mk for each class
-     * @param trainingData Training dataset
-     */
-    private void calculateStandardizingParamsForAllK(Instances trainingData) {
-        m_allMK = new double[m_classCentroids.length];
-        // TODO more meaningful name
-        double oneOverAll = 1f / trainingData.numInstances();
-
-        // Loop over all classes
-        for (int i = 0; i < m_classCentroids.length; i++) {
-            // Get the relevant class centroid
-            Centroid c = m_classCentroids[i];
-            // Calculate the first half of the equation (1/nk) TODO give more meaningful names
-            double firstEq = 1f / c.getInstances().size();
-            // Calculate the actual Mk
-            double mk = Math.sqrt(firstEq + oneOverAll);
-            // Save the value
-            m_allMK[i] = mk;
-        }
-    }
-
-
-    /**
-     * Text before equation 3
-     * Calculates s_{o}, by simply using the median of the s_{i} values found
-     * @param values
-     */
-    private void calculateMedian(double[] values) {
-        // When finding the median, ignore the class attribute -
-        // we only want to find the median for the other attributes
-        double[] valuesCopy = new double[values.length - 1];
-        int copyIndex = 0;
-        for (int i = 0; i < valuesCopy.length; i++) {
-            if (i == m_classAttributeIndex)
-                continue;
-            valuesCopy[copyIndex] = values[i];
-            copyIndex++;
-        }
-        Arrays.sort(valuesCopy);
-
-        int middle = valuesCopy.length / 2;
-        if (valuesCopy.length % 2 == 1) {
-            m_medianSo = valuesCopy[middle];
-        } else {
-            m_medianSo = (valuesCopy[middle-1] + valuesCopy[middle]) / 2.0;
-        }
-    }
-
-    /**
-     * Equation 2
-     * Calculate within-class std dev
-     * @param trainingData Training dataset
-     */
-    private void calculateStandardDeviations(Instances trainingData) {
-        m_withinClassStdDevSi = new double[m_globalCentroid.numAttributes()];
-        // 1 / n - K
-        double stdValue = 1 / (float) (trainingData.numInstances() - trainingData.classAttribute().numValues());
-
-        // We want to calculate Si for all i
-        for (int i = 0; i < m_globalCentroid.numAttributes(); i++) {
-            // Ignore the class attribute
-            if (i == m_classAttributeIndex)
-                continue;
-            double sum = 0;
-                // Outer sum : for all classes
-                for (Centroid thisClassCentroid : m_classCentroids) {
-                    // Inner sum : for all instances in this class
-                    for (Instance instance : thisClassCentroid.getInstances()) {
-                        // Xij - X-ik - difference of this attribute between this instance and the class centroid
-                        double dif = thisClassCentroid.getDifferenceFromInstanceAttribute(instance, i);
-                        // Square the value
-                        dif = dif * dif;
-                        // Add it to the sum for this attribute
-                        sum += dif;
+            // Establish best threshold based on results from k-fold CV
+            double bestPercent = -1;
+            double threshold = 0;
+            for (int i = 0; i < getNumEvaluationThresholds(); i++) {
+                double pctCorrect = scores[i].pctCorrect();
+                if (m_Debug) {
+                    System.err.printf("%3f --- %3f\n", threshold, pctCorrect);
+                }
+                if (pctCorrect > bestPercent) {
+                    m_bestThreshold = threshold;
+                    bestPercent = pctCorrect;
+                    if (m_Debug) {
+                        System.err.println(String.format("Found better classifier with threshold %f, accuracy = %3f",
+                                threshold, pctCorrect));
                     }
                 }
-                // Multiply it by the standard value
-                sum *= stdValue;
-                // Square root it (equation 2 is for si^2, we want si)
-                sum = Math.sqrt(sum);
-                // Save the standard deviation for this attribute
-                m_withinClassStdDevSi[i] = sum;
-        }
-    }
-
-    /**
-     * Calculate both the global centroid and the class-level centroids
-     * @param trainingData Training dataset
-     */
-    private void calculateCentroids(Instances trainingData) {
-        // Init the global and class centroids
-        m_classAttributeIndex = trainingData.classIndex();
-        m_globalCentroid = new Centroid(trainingData.numAttributes(), m_classAttributeIndex);
-        m_classCentroids = new Centroid[trainingData.classAttribute().numValues()];
-        for (int i = 0; i < m_classCentroids.length; i++) {
-            m_classCentroids[i] = new Centroid(trainingData.numAttributes(), m_classAttributeIndex);
-        }
-
-        // For each instance, add them into the global and class centroid
-        for (Instance instance : trainingData) {
-            // Get the class value
-            int classVal = (int) instance.classValue();
-
-            m_globalCentroid.addInstance(instance);
-
-            // Get the centroid for this class
-            Centroid tempClassCentroid = m_classCentroids[classVal];
-            // Add the value for this instance
-            tempClassCentroid.addInstance(instance);
-        }
-
-        // After adding up all the attribute values, we finally average them to find the global and class centroid
-        m_globalCentroid.averageValues();
-        for (Centroid c : m_classCentroids) {
-            c.averageValues();
-        }
-    }
-
-    private double getCorrectedDistance(Instance testInstance, Centroid classCentroid) {
-        // We need to scale the instances once we've shrunken the centroids
-        // Here we use equation [6]
-        double distanceSum = 0;
-        // sum from i = 1 to p
-        for (int i = 0; i < m_globalCentroid.numAttributes(); i++) {
-            // Ignore the class attribute
-            if (i == m_classAttributeIndex)
-                continue;
-            double squaredDif = classCentroid.getDifferenceFromInstanceAttribute(testInstance, i, true);
-            // Actually square it
-            squaredDif *= squaredDif;
-            // bottom half of eq - (si + so)^2
-            double standardizeVal = m_withinClassStdDevSi[i] + m_medianSo;
-            standardizeVal *= standardizeVal;
-            // Add this value into the sum over all attributes
-            double thisSum = squaredDif / standardizeVal;
-            distanceSum += thisSum;
-        }
-        // Last part of equation -- 2 log pi k
-        // Proportion of instances in this class
-        double classPrior = classCentroid.getInstances().size() / (float) m_globalCentroid.getInstances().size();
-        return distanceSum - (2 * Math.log(classPrior));
-    }
-
-    private double[] getClassDistances(Instance testInstance) {
-        double[] distances = new double[m_classCentroids.length];
-        for (int k = 0; k < m_classCentroids.length; k++) {
-            distances[k] = getCorrectedDistance(testInstance, m_classCentroids[k]);
-        }
-        return distances;
-    }
-
-    /**
-     * @param testInstance Instance to classify
-     * @return Predicted class index
-     */
-    public double classifyInstance(Instance testInstance) {
-        // Max value as we want all calculated distances to be less
-        double minDist = Double.MAX_VALUE;
-        double minDistClass = 0;
-        if (m_applyShrinkage) {
-            double[] classDistances = getClassDistances(testInstance);
-            // Find the centroid with the lowest distance
-            for (int k = 0; k < classDistances.length; k++) {
-                double distance = classDistances[k];
-
-                if (distance < minDist) {
-                    minDist = distance;
-                    minDistClass = k;
-                }
+                threshold += inc;
+            }
+            if (m_Debug) {
+                System.err.printf(SUMMARY_STRING, m_bestThreshold, bestPercent);
             }
         } else {
-            // Perform a standard nearest centroid classification if we're not doing shrinkage
-            for (int i = 0; i < m_classCentroids.length; i++) {
-                // Calculate the distance to each centroid
-                Centroid classCentroid = m_classCentroids[i];
-                double tmpDist = classCentroid.getDistanceFromInstance(testInstance);
-                // Save the lowest distance and the class
-                if (tmpDist < minDist) {
-                    minDist = tmpDist;
-                    minDistClass = i;
+            m_bestThreshold = getShrinkage();
+        }
+        m_header = trainingData.stringFreeStructure();
+    }
+
+    /**
+     * Returns the estimated class probability distribution for the given instance.
+     *
+     * @param testInstance the instance to obtain class probabilities for
+     * @return the class probability estimates as an array of floating-point numbers
+     */
+    public double[] distributionForInstance(Instance testInstance) {
+
+        double[] dist = new double[m_centroids.length];
+        for (int k = 0; k < m_centroids.length; k++) {
+            double m_k = Math.sqrt((1.0 / m_numInstancesInClass[k]) - (1.0 / m_numInstances)); // Bug in paper
+            for (int i = 0; i < m_centroids[k].length; i++) {
+                if (i != testInstance.classIndex()) {
+                    double d_ij = m_centroids[k][i] - m_globalCentroid[i]; // 0 for class attribute
+                    double denom = m_k * (m_standardDeviations[i] + m_s_0);
+                    double adjustWithoutSign = Math.abs(d_ij / denom) - m_bestThreshold;
+                    double diff = testInstance.value(i);
+                    if (adjustWithoutSign > 0) {
+                        if (d_ij <= 0) {
+                            diff -= (m_globalCentroid[i] - denom * adjustWithoutSign);
+                        } else {
+                            diff -= (m_globalCentroid[i] + denom * adjustWithoutSign);
+                        }
+                    } else {
+                        diff -= m_globalCentroid[i];
+                    }
+                    double sqrtDenom = m_standardDeviations[i] + m_s_0;
+                    dist[k] += (diff * diff) / (sqrtDenom * sqrtDenom);
+                }
+            }
+            dist[k] -= 2 * Math.log(m_numInstancesInClass[k] / m_numInstances);
+            dist[k] *= -0.5;
+        }
+        return Utils.logs2probs(dist);
+    }
+
+    /**
+     * Returns a textual description of the classifier.
+     */
+    public String toString() {
+
+        if (m_header == null) {
+            return "Classifier has not been built yet.";
+        }
+        StringBuffer result = new StringBuffer();
+        result.append("\n=== Shrunken centroid classifier with threshold " + m_bestThreshold + " ===");
+        for (int k = 0; k < m_centroids.length; k++) {
+            result.append("\n\nShrunken centroid for class  " + m_header.classAttribute().value(k) + "\n\n");
+            double m_k = Math.sqrt((1.0 / m_numInstancesInClass[k]) - (1.0 / m_numInstances)); // Bug in paper
+            for (int i = 0; i < m_centroids[k].length; i++) {
+                if (i != m_header.classIndex()) {
+                    double d_ij = m_centroids[k][i] - m_globalCentroid[i]; // 0 for class attribute
+                    double denom = m_k * (m_standardDeviations[i] + m_s_0);
+                    double adjustWithoutSign = Math.abs(d_ij / denom) - m_bestThreshold;
+                    if (adjustWithoutSign > 0) {
+                        if (d_ij <= 0) {
+                            result.append(m_header.attribute(i).name() + ": " +
+                                    (m_globalCentroid[i] - denom * adjustWithoutSign) + "\n");
+                        } else {
+                            result.append(m_header.attribute(i).name() + ": " +
+                                    (m_globalCentroid[i] + denom * adjustWithoutSign) + "\n");
+                        }
+                    }
                 }
             }
         }
-        return minDistClass;
-    }
-
-    private double softmaxDistance(double distance) {
-        return Math.exp(-0.5 * distance);
-    }
-
-    /**
-     * Equation 8
-     * @param testInstance Instance to test
-     * @return Class distribution
-     */
-    public double[] distributionForInstance(Instance testInstance) {
-        double[] distribution = new double[m_classCentroids.length];
-        double[] distances = getClassDistances(testInstance);
-        double distributionSum = 0;
-
-        // Add up all the distributions (bottom half of eq)
-        for (double distance : distances) {
-            distributionSum += softmaxDistance(distance);
-        }
-
-        for (int k = 0; k < distribution.length; k++) {
-            distribution[k] = softmaxDistance(distances[k]) / distributionSum;
-        }
-
-        return distribution;
-    }
-
-    /**
-     * @return Stats on the thresholds testing during internal CV
-     */
-    @Override
-    public String toString() {
-        return m_modelString;
+        return result.toString();
     }
 
     /**
@@ -665,18 +363,27 @@ public class ShrunkenCentroid extends AbstractClassifier {
      * @return the info describing the filter.
      */
     public String globalInfo() {
-        return "This algorithm performs nearest-centroid classification, however as an enhancement," +
-                "shrinks the centroids toward the global centroid, controlled by the threshold parameter.";
+        return "This algorithm performs shrunken nearest-centroid classification.";
     }
 
     /**
-     * The capabilities of this filter.
+     * The capabilities of this classifier.
      * @return the capabilities
      */
     public Capabilities getCapabilities() {
         Capabilities result = super.getCapabilities();
-        result.enable(Capabilities.Capability.STRING_ATTRIBUTES);
-        result.enableAllClasses();
+        result.disableAll();
+        result.enable(Capabilities.Capability.NUMERIC_ATTRIBUTES);
+        result.enable(Capabilities.Capability.NOMINAL_CLASS);
         return result;
+    }
+
+    /**
+     * Main method for testing this class
+     *
+     * @param argv options
+     */
+    public static void main(String [] argv){
+        runClassifier(new ShrunkenCentroid(), argv);
     }
 }
